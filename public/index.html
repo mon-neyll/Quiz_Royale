@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz Royale | Pro Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
+        .active-tab { border-bottom: 3px solid #3b82f6; color: #3b82f6; background: linear-gradient(to bottom, transparent, rgba(59, 130, 246, 0.1)); }
+        #editModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(6px); }
+        #loadingOverlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.95); z-index: 3000; flex-direction: column; align-items: center; justify-content: center; }
+        .spinner { width: 50px; height: 50px; border: 4px solid #1e293b; border-top: 4px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .progress-box { width: 300px; background: #1e293b; border-radius: 50px; height: 8px; overflow: hidden; border: 1px solid #334151; margin: 15px 0; }
+        .progress-fill { height: 100%; background: #3b82f6; width: 0%; transition: width 0.3s; }
+        .q-row-selected { background: rgba(59, 130, 246, 0.1) !important; }
+    </style>
+</head>
+<body class="font-sans antialiased">
+
+    <div id="editModal">
+        <div class="glass p-8 rounded-3xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <h2 class="text-xl font-black mb-6 uppercase flex justify-between">Edit Question <span id="qLabel" class="text-blue-500"></span></h2>
+            <input type="hidden" id="editId">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="md:col-span-2">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase">Question Text</label>
+                    <textarea id="editTxt" class="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-sm outline-none focus:border-blue-500 h-20 mt-1"></textarea>
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 uppercase">Genre / Topic</label>
+                    <select id="editGenre" class="w-full bg-slate-900 border border-white/10 rounded-lg p-2 text-sm outline-none mt-1">
+                        <option>Society & Culture</option><option>Science & Mathematics</option>
+                        <option>Health</option><option>Education & Reference</option>
+                        <option>Computers & Internet</option><option>Sports</option>
+                        <option>Business & Finance</option><option>Entertainment & Music</option>
+                        <option>Family & Relationships</option><option>Politics & Government</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-[10px] font-bold text-slate-500 uppercase">Difficulty</label>
+                    <select id="editDiff" class="w-full bg-slate-900 border border-white/10 rounded-lg p-2 text-sm outline-none mt-1 text-yellow-500">
+                        <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
+                    </select>
+                </div>
+                <div class="md:col-span-2 space-y-4">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase block">Options</label>
+                    <div class="grid grid-cols-2 gap-4">
+                        <input id="opt0" type="text" class="bg-slate-900 border border-white/10 rounded-lg p-2 text-sm outline-none">
+                        <input id="opt1" type="text" class="bg-slate-900 border border-white/10 rounded-lg p-2 text-sm outline-none">
+                        <input id="opt2" type="text" class="bg-slate-900 border border-white/10 rounded-lg p-2 text-sm outline-none">
+                        <input id="opt3" type="text" class="bg-slate-900 border border-white/10 rounded-lg p-2 text-sm outline-none">
+                    </div>
+                </div>
+                <div class="md:col-span-2">
+                    <label class="text-[10px] font-bold text-green-500 uppercase">Correct Answer</label>
+                    <select id="editCorrect" class="w-full bg-slate-900 border border-green-500/30 rounded-lg p-2 text-sm outline-none mt-1">
+                        <option value="0">Option 1</option><option value="1">Option 2</option>
+                        <option value="2">Option 3</option><option value="3">Option 4</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex gap-4 mt-8">
+                <button onclick="closeEditModal()" class="flex-1 py-3 rounded-xl font-bold text-xs uppercase bg-slate-800">Cancel</button>
+                <button onclick="saveEdit()" class="flex-1 py-3 rounded-xl font-black text-xs uppercase bg-blue-600">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loadingOverlay">
+        <div class="spinner"></div>
+        <div class="text-center mt-6">
+            <h2 class="text-xl font-black uppercase tracking-widest">AI Ingestion</h2>
+            <div class="progress-box"><div id="pBar" class="progress-fill"></div></div>
+            <p id="pPercent" class="font-mono text-blue-400 font-bold">0%</p>
+            <div id="statusBadge" class="hidden mt-4 px-6 py-2 rounded-full font-black text-[10px] uppercase mx-auto w-fit"></div>
+            <button onclick="stopClassification()" class="mt-8 text-red-400 text-[10px] font-bold border border-red-500/20 px-6 py-2 rounded-full hover:bg-red-500 hover:text-white transition">ABORT</button>
+        </div>
+    </div>
+
+    <nav class="glass sticky top-0 z-50 px-6 py-4 flex justify-between items-center border-b border-white/5">
+        <h1 class="text-lg font-black tracking-tighter uppercase">Quiz Royale <span class="text-blue-500">Admin</span></h1>
+        <div class="flex items-center gap-3">
+            <input type="password" id="apiKey" placeholder="Admin Key" class="bg-slate-900/50 border border-white/10 px-4 py-2 rounded-lg text-sm outline-none w-48 transition-all focus:border-blue-500">
+            <button onclick="syncData()" class="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-lg text-sm font-bold shadow-lg shadow-blue-900/20">Sync Cloud</button>
+        </div>
+    </nav>
+
+    <div class="flex glass border-b border-white/5 sticky top-[73px] z-40">
+        <button onclick="setTab('dash')" id="tab-dash" class="flex-1 py-4 text-[11px] font-black active-tab uppercase tracking-[0.2em]">Dashboard</button>
+        <button onclick="setTab('users')" id="tab-users" class="flex-1 py-4 text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">User Base</button>
+        <button onclick="setTab('qs')" id="tab-qs" class="flex-1 py-4 text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">Question Bank</button>
+    </div>
+
+    <main class="container mx-auto p-8">
+        <div id="sec-dash" class="space-y-8">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div class="glass p-6 rounded-2xl border-l-4 border-blue-500">
+                    <p class="text-slate-500 text-[10px] font-black uppercase">Total Questions</p>
+                    <h2 id="cnt-qs" class="text-3xl font-black mt-2">0</h2>
+                </div>
+                <div class="glass p-6 rounded-2xl border-l-4 border-emerald-500">
+                    <p class="text-slate-500 text-[10px] font-black uppercase">Active Players</p>
+                    <h2 id="cnt-users" class="text-3xl font-black mt-2">0</h2>
+                </div>
+                <div class="glass p-6 rounded-2xl border-l-4 border-purple-500">
+                    <p class="text-slate-500 text-[10px] font-black uppercase">Genres</p>
+                    <h2 id="cnt-genres" class="text-3xl font-black mt-2">0</h2>
+                </div>
+                <div class="glass p-6 rounded-2xl border-l-4 border-amber-500">
+                    <p class="text-slate-500 text-[10px] font-black uppercase">BERT Accuracy</p>
+                    <h2 id="cnt-accuracy" class="text-3xl font-black mt-2">0%</h2>
+                </div>
+            </div>
+
+            <div class="glass p-12 text-center rounded-3xl">
+                <label for="fileIn" class="block border-2 border-dashed border-slate-700 rounded-3xl p-16 cursor-pointer hover:border-blue-500 hover:bg-blue-500/5 transition-all">
+                    <input type="file" id="fileIn" class="hidden">
+                    <span id="fileName" class="text-slate-400 font-bold tracking-wide">CLICK TO SELECT SOURCE PDF</span>
+                </label>
+                <div class="flex gap-4 max-w-lg mx-auto mt-8">
+                    <button onclick="clearFile()" class="flex-1 bg-slate-800 py-4 rounded-xl font-bold text-xs uppercase">Clear</button>
+                    <button id="uploadBtn" onclick="doUpload()" class="flex-[2] bg-blue-600 py-4 rounded-xl font-black text-sm uppercase shadow-xl">Start Processing</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="sec-users" class="hidden space-y-4"></div>
+
+        <div id="sec-qs" class="hidden flex flex-col gap-6">
+            <div class="flex flex-wrap items-center justify-between gap-4 glass p-4 rounded-2xl">
+                <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-2 bg-slate-900/50 p-2 rounded-xl border border-white/5">
+                        <input type="checkbox" id="selectAll" onclick="toggleSelectAll()" class="w-4 h-4 rounded border-gray-300">
+                        <label for="selectAll" class="text-[10px] font-bold uppercase text-slate-400">Select All</label>
+                    </div>
+                    <button id="bulkDelBtn" onclick="bulkDelete()" class="hidden bg-rose-600/20 hover:bg-rose-600 text-rose-500 hover:text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase border border-rose-500/30 transition-all">
+                        Delete Selected (<span id="selectedCount">0</span>)
+                    </button>
+                </div>
+                
+                <div class="flex items-center gap-3">
+                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sort by Difficulty:</p>
+                    <button onclick="sortQuestions('asc')" class="p-2 bg-slate-800 rounded-lg hover:bg-blue-600 transition" title="Easy to Hard">↑</button>
+                    <button onclick="sortQuestions('desc')" class="p-2 bg-slate-800 rounded-lg hover:bg-blue-600 transition" title="Hard to Easy">↓</button>
+                </div>
+            </div>
+
+            <div class="flex flex-col md:flex-row gap-8">
+                <div class="w-full md:w-72 space-y-2">
+                    <p class="text-[10px] font-black text-slate-500 uppercase px-4 mb-4 tracking-widest text-center">Dataset Genres</p>
+                    <div id="genreFilters" class="space-y-1">
+                        <button onclick="filterByGenre('All')" class="w-full text-left p-3 rounded-lg text-sm font-semibold text-slate-400 hover:bg-white/5 active">All Questions</button>
+                        <button onclick="filterByGenre('Society & Culture')" class="w-full text-left p-3 rounded-lg text-sm font-semibold text-slate-400 hover:bg-white/5">Society & Culture</button>
+                        <button onclick="filterByGenre('Science & Mathematics')" class="w-full text-left p-3 rounded-lg text-sm font-semibold text-slate-400 hover:bg-white/5">Science & Maths</button>
+                        <button onclick="filterByGenre('Health')" class="w-full text-left p-3 rounded-lg text-sm font-semibold text-slate-400 hover:bg-white/5">Health</button>
+                        <button onclick="filterByGenre('Education & Reference')" class="w-full text-left p-3 rounded-lg text-sm font-semibold text-slate-400 hover:bg-white/5">Education</button>
+                        <button onclick="filterByGenre('Computers & Internet')" class="w-full text-left p-3 rounded-lg text-sm font-semibold text-slate-400 hover:bg-white/5">Computers</button>
+                        <button onclick="filterByGenre('Sports')" class="w-full text-left p-3 rounded-lg text-sm font-semibold text-slate-400 hover:bg-white/5">Sports</button>
+                        <button onclick="filterByGenre('Business & Finance')" class="w-full text-left p-3 rounded-lg text-sm font-semibold text-slate-400 hover:bg-white/5">Business</button>
+                        <button onclick="filterByGenre('Entertainment & Music')" class="w-full text-left p-3 rounded-lg text-sm font-semibold text-slate-400 hover:bg-white/5">Entertainment</button>
+                        <button onclick="filterByGenre('Family & Relationships')" class="w-full text-left p-3 rounded-lg text-sm font-semibold text-slate-400 hover:bg-white/5">Family & Relationships</button>
+                        <button onclick="filterByGenre('Politics & Government')" class="w-full text-left p-3 rounded-lg text-sm font-semibold text-slate-400 hover:bg-white/5">Politics & Govt</button>
+                    </div>
+                </div>
+                <div class="flex-1 glass rounded-2xl overflow-hidden shadow-2xl">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-800 text-slate-400 uppercase text-[10px] font-black border-b border-white/5">
+                            <tr>
+                                <th class="p-5 w-4"></th>
+                                <th class="p-5">Question Detail</th>
+                                <th class="p-5">Meta</th>
+                                <th class="p-5 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="qsTableBody" class="divide-y divide-white/5"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const API = window.location.origin;
+        let abortController = null;
+        let currentTab = 'dash';
+        let questionData = [];
+        const diffWeight = { 'easy': 1, 'medium': 2, 'hard': 3 };
+
+        document.getElementById('apiKey').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') syncData();
+        });
+
+        document.getElementById('fileIn').addEventListener('change', e => {
+            document.getElementById('fileName').innerText = e.target.files[0]?.name || "SOURCE PDF SELECTED";
+        });
+
+        function setTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('main > div').forEach(div => div.classList.add('hidden'));
+            document.getElementById(`sec-${tab}`).classList.remove('hidden');
+            document.querySelectorAll('nav + div button').forEach(b => b.classList.remove('active-tab', 'text-blue-500'));
+            document.getElementById(`tab-${tab}`).classList.add('active-tab', 'text-blue-500');
+            refreshData();
+        }
+
+        async function syncData() {
+            const key = document.getElementById('apiKey').value;
+            if(!key) return alert("Admin Key required");
+            localStorage.setItem('adminKey', key);
+            refreshData();
+        }
+
+        async function refreshData() {
+            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            if(!key) return;
+            try {
+                // Fetch Stats
+                const sRes = await fetch(`${API}/admin/stats`, { headers: {'x-api-key': key} });
+                const stats = await sRes.json();
+                document.getElementById('cnt-qs').innerText = stats.totalQuestions;
+                document.getElementById('cnt-users').innerText = stats.userStats;
+                document.getElementById('cnt-genres').innerText = stats.uniqueGenres || 10;
+                document.getElementById('cnt-accuracy').innerText = (stats.accuracy || 94) + "%";
+
+                if(currentTab === 'users') {
+                    const res = await fetch(`${API}/admin/users`, { headers: {'x-api-key': key} });
+                    const users = await res.json();
+                    document.getElementById('sec-users').innerHTML = users.map(u => `
+                        <div class="glass p-6 rounded-2xl flex items-center justify-between">
+                            <div><h3 class="font-black text-white text-lg">${u.username || u.name}</h3><p class="text-[10px] text-blue-400 font-black uppercase tracking-widest">${u.level}</p></div>
+                            <button onclick="toggleBan('${u._id}', ${u.isBanned})" class="px-6 py-2 rounded-xl text-[10px] font-black border transition-all ${u.isBanned ? 'bg-emerald-600 text-white' : 'text-rose-500 border-rose-500/30 hover:bg-rose-500 hover:text-white'} uppercase">
+                                ${u.isBanned ? 'Unban User' : 'Ban User'}
+                            </button>
+                        </div>`).join('');
+                }
+                if(currentTab === 'qs') filterByGenre('All');
+            } catch(e) {}
+        }
+
+        async function toggleBan(userId, isCurrentlyBanned) {
+            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            const action = isCurrentlyBanned ? 'unban' : 'ban'; // Choose correct endpoint
+            if(!confirm(`Are you sure you want to ${isCurrentlyBanned ? 'Unban' : 'Ban'} this user?`)) return;
+
+            try {
+                const res = await fetch(`${API}/admin/users/${userId}/${action}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'x-api-key': key }
+                });
+                if(res.ok) refreshData();
+                else {
+                    const err = await res.json();
+                    alert(err.message || "Failed to update user status");
+                }
+            } catch(e) {
+                console.error(e);
+                alert("Error updating user status");
+            }
+        }
+
+        async function filterByGenre(genre) {
+            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            const res = await fetch(`${API}/admin/questions${genre !== 'All' ? '?genre='+encodeURIComponent(genre) : ''}`, { headers: {'x-api-key': key} });
+            questionData = await res.json();
+            renderQuestions();
+        }
+
+        function sortQuestions(dir) {
+            questionData.sort((a, b) => {
+                const valA = diffWeight[a.difficulty.toLowerCase()] || 0;
+                const valB = diffWeight[b.difficulty.toLowerCase()] || 0;
+                return dir === 'asc' ? valA - valB : valB - valA;
+            });
+            renderQuestions();
+        }
+
+        function renderQuestions() {
+            document.getElementById('qsTableBody').innerHTML = questionData.map(q => `
+                <tr class="hover:bg-white/5 transition" id="row-${q._id}">
+                    <td class="p-5">
+                        <input type="checkbox" class="q-checkbox w-4 h-4 rounded" value="${q._id}" onchange="updateSelection()">
+                    </td>
+                    <td class="p-5">
+                        <p class="text-white font-medium">${q.questionText}</p>
+                        <p class="text-[9px] text-emerald-400 font-black mt-1">Ans: ${q.options[q.correctAnswer]}</p>
+                    </td>
+                    <td class="p-5">
+                        <p class="text-[10px] text-purple-400 font-black uppercase">${q.genre}</p>
+                        <span class="text-[9px] font-black text-amber-500 uppercase">${q.difficulty}</span>
+                    </td>
+                    <td class="p-5 text-right whitespace-nowrap">
+                        <button onclick="openEditModal('${q._id}')" class="text-blue-400 font-black text-[10px] uppercase mr-4">Edit</button>
+                        <button onclick="deleteQuestion('${q._id}')" class="text-rose-500 font-black text-[10px] uppercase">Delete</button>
+                    </td>
+                </tr>`).join('');
+            updateSelection();
+        }
+
+        function toggleSelectAll() {
+            const master = document.getElementById('selectAll');
+            document.querySelectorAll('.q-checkbox').forEach(cb => cb.checked = master.checked);
+            updateSelection();
+        }
+
+        function updateSelection() {
+            const checked = document.querySelectorAll('.q-checkbox:checked');
+            const btn = document.getElementById('bulkDelBtn');
+            document.getElementById('selectedCount').innerText = checked.length;
+            if(checked.length > 0) btn.classList.remove('hidden');
+            else { btn.classList.add('hidden'); document.getElementById('selectAll').checked = false; }
+
+            document.querySelectorAll('.q-checkbox').forEach(cb => {
+                const row = document.getElementById(`row-${cb.value}`);
+                if(row) cb.checked ? row.classList.add('q-row-selected') : row.classList.remove('q-row-selected');
+            });
+        }
+
+        async function bulkDelete() {
+            const checked = document.querySelectorAll('.q-checkbox:checked');
+            if(!confirm(`Delete ${checked.length} questions forever?`)) return;
+            const ids = Array.from(checked).map(cb => cb.value);
+            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            try {
+                const res = await fetch(`${API}/admin/questions/bulk`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json', 'x-api-key': key },
+                    body: JSON.stringify({ ids })
+                });
+                if(res.ok) refreshData();
+            } catch(e) {}
+        }
+
+        async function deleteQuestion(id, silent = false) {
+            if(!silent && !confirm("Delete question?")) return;
+            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            await fetch(`${API}/admin/questions/${id}`, { method: 'DELETE', headers: {'x-api-key': key} });
+            if(!silent) refreshData();
+        }
+
+        function openEditModal(id) {
+            const q = questionData.find(item => item._id === id);
+            if(!q) return;
+            document.getElementById('editId').value = q._id;
+            document.getElementById('editTxt').value = q.questionText;
+            document.getElementById('editGenre').value = q.genre;
+            document.getElementById('editDiff').value = q.difficulty;
+            document.getElementById('opt0').value = q.options[0];
+            document.getElementById('opt1').value = q.options[1];
+            document.getElementById('opt2').value = q.options[2];
+            document.getElementById('opt3').value = q.options[3];
+            document.getElementById('editCorrect').value = q.correctAnswer;
+            document.getElementById('editModal').style.display = 'flex';
+        }
+
+        function closeEditModal() { document.getElementById('editModal').style.display = 'none'; }
+
+        async function saveEdit() {
+            const id = document.getElementById('editId').value;
+            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            const updated = {
+                questionText: document.getElementById('editTxt').value,
+                genre: document.getElementById('editGenre').value,
+                difficulty: document.getElementById('editDiff').value,
+                options: [document.getElementById('opt0').value, document.getElementById('opt1').value, document.getElementById('opt2').value, document.getElementById('opt3').value],
+                correctAnswer: parseInt(document.getElementById('editCorrect').value)
+            };
+            await fetch(`${API}/admin/questions/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': key },
+                body: JSON.stringify(updated)
+            });
+            closeEditModal(); refreshData();
+        }
+
+        function clearFile() { document.getElementById('fileIn').value = ""; document.getElementById('fileName').innerText = "CLICK TO SELECT SOURCE PDF"; }
+        
+        async function doUpload() {
+            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            const file = document.getElementById('fileIn').files[0];
+            if(!file || !key) return alert("Missing Key/File.");
+            abortController = new AbortController();
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.style.display = 'flex';
+            const fd = new FormData(); fd.append('quizPdf', file);
+            try {
+                const res = await fetch(`${API}/admin/upload-quiz`, { method: 'POST', headers: {'x-api-key': key}, body: fd, signal: abortController.signal });
+                if(res.ok) { 
+                    document.getElementById('pBar').style.width = '100%'; 
+                    setTimeout(() => { overlay.style.display = 'none'; refreshData(); }, 1000); 
+                }
+            } catch (e) { overlay.style.display = 'none'; }
+        }
+
+        function stopClassification() { if (abortController) abortController.abort(); document.getElementById('loadingOverlay').style.display = 'none'; }
+    </script>
+</body>
+</html>

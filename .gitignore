@@ -1,0 +1,7 @@
+.env
+node_modules
+.venv
+services
+routes
+controllers
+package-lock.json
