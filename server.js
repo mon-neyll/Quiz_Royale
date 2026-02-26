@@ -26,6 +26,7 @@ app.use(cors({
 })); 
 
 app.use(express.json());
+app.use(express.static('public'));
 
 // FIXED: Auto-trimming middleware. This prevents "Invalid Credentials" 
 // errors caused by hidden spaces in Flutter/Postman inputs.
@@ -464,20 +465,8 @@ app.post('/admin/upload-quiz', requireApiKey, async (req, res) => {
         if (!res.headersSent) res.status(500).json({ error: err.message });
     }
 });
-app.get('/dashboard', async (req, res) => {
-    const totalQuestions = await Question.countDocuments();
-    const userCount = await User.countDocuments();
-    
-    // Sending HTML directly so it looks like a webpage
-    res.send(`
-        <html>
-            <body style="font-family: sans-serif; text-align: center; padding: 50px;">
-                <h1>Quiz Royale Admin Dashboard</h1>
-                <p>Total Questions: <strong>${totalQuestions}</strong></p>
-                <p>Total Players: <strong>${userCount}</strong></p>
-            </body>
-        </html>
-    `);
+app.get('/admin-panel', (req, res) => {
+    res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 // --- 6. Server Startup ---
 mongoose.connect(process.env.MONGO_URI)
