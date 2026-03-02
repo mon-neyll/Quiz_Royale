@@ -72,22 +72,20 @@ publicRouter.post('/register', async (req, res) => {
             stats: { matchesPlayed: 0, wins: 0, losses: 0, draws: 0, totalPoints: 0 }
         });
         
-        // const savedUser = await newUser.save();
+        const savedUser = await newUser.save();
 
-        // // MANDATORY: Return the user object so Flutter can navigate
-        // res.status(201).json({ 
-        //     success: true, 
-        //     user: {
-        //         _id: savedUser._id.toString(), // Ensure ID is a string
-        //         name: savedUser.username,
-        //         email: savedUser.email,
-        //         level: savedUser.level,
-        //         genres: savedUser.preferredGenres || [],
-        //         stats: savedUser.stats
-        //     }
-        // });
-        const savedQ = await newQ.save(); // ← correct variable
-        res.status(201).json({ success: true, data: savedQ });
+        // MANDATORY: Return the user object so Flutter can navigate
+        res.status(201).json({ 
+            success: true, 
+            user: {
+                _id: savedUser._id.toString(), // Ensure ID is a string
+                name: savedUser.username,
+                email: savedUser.email,
+                level: savedUser.level,
+                genres: savedUser.preferredGenres || [],
+                stats: savedUser.stats
+            }
+        });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
@@ -199,6 +197,13 @@ publicRouter.post('/users/update-genres', async (req, res) => {
     try {
         const { userId, preferredGenres } = req.body;
 
+        if (!userId || !Array.isArray(preferredGenres)) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Invalid data format" 
+            });
+        }
+
         // Find user and update their genres
         const updatedUser = await User.findByIdAndUpdate(
             userId,
@@ -277,7 +282,10 @@ app.post('/admin/questions', requireApiKey, async (req, res) => {
             genre: req.body.genre,
             difficulty: req.body.difficulty || 'intermediate'
         });
-        const savedUser = await newUser.save();
+        // const savedUser = await newUser.save();
+        const savedQuestion = await newQ.save();
+        res.status(201).json(savedQuestion);
+
         res.status(201).json({ 
             success: true, 
             user: {
@@ -470,6 +478,7 @@ app.post('/admin/upload-quiz', requireApiKey, async (req, res) => {
 app.get('/admin-panel', (req, res) => {
     res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
+initSocket(server);
 // --- 6. Server Startup ---
 mongoose.connect(process.env.MONGO_URI)
     .then(() => {
