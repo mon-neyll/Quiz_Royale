@@ -72,20 +72,22 @@ publicRouter.post('/register', async (req, res) => {
             stats: { matchesPlayed: 0, wins: 0, losses: 0, draws: 0, totalPoints: 0 }
         });
         
-        const savedUser = await newUser.save();
+        // const savedUser = await newUser.save();
 
-        // MANDATORY: Return the user object so Flutter can navigate
-        res.status(201).json({ 
-            success: true, 
-            user: {
-                _id: savedUser._id.toString(), // Ensure ID is a string
-                name: savedUser.username,
-                email: savedUser.email,
-                level: savedUser.level,
-                genres: savedUser.preferredGenres || [],
-                stats: savedUser.stats
-            }
-        });
+        // // MANDATORY: Return the user object so Flutter can navigate
+        // res.status(201).json({ 
+        //     success: true, 
+        //     user: {
+        //         _id: savedUser._id.toString(), // Ensure ID is a string
+        //         name: savedUser.username,
+        //         email: savedUser.email,
+        //         level: savedUser.level,
+        //         genres: savedUser.preferredGenres || [],
+        //         stats: savedUser.stats
+        //     }
+        // });
+        const savedQ = await newQ.save(); // ← correct variable
+        res.status(201).json({ success: true, data: savedQ });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }

@@ -96,8 +96,10 @@ export const initSocket = (server) => {
                     io.to(roomId).emit('start_selection', {
                         roomId,
                         timer: 20,
-                        p1: { id: userId, inventory: p1Inv },
-                        p2: { id: opponent.userId, inventory: p2Inv }
+                        // p1: { id: userId, inventory: p1Inv },
+                        // p2: { id: opponent.userId, inventory: p2Inv }
+                        p1: { id: userId, name: currentName, inventory: p1Inv },
+                        p2: { id: opponent.userId, name: opponent.name, inventory: p2Inv }
                     });
 
                     // Timeout: If players don't select, auto-pick the first 5
