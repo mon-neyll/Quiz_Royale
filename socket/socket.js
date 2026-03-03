@@ -22,7 +22,10 @@ export const initSocket = (server) => {
                 }
 
                 // Normalizing field names based on schema: preferredGenres and level
-                const currentGenres = (user.preferredGenres || []).map(Number);
+                const currentGenres = 
+                (user.preferredGenres && user.preferredGenres.length === 10)
+                ? user.preferredGenres
+                : new Array(10).fill(0);
                 const currentName = user.name || "Anonymous"; 
                 const currentLevel = user.level || "noob";
 
@@ -44,7 +47,7 @@ export const initSocket = (server) => {
                     };
 
                     // Matchmaking based on Cosine Similarity (min threshold 0.65)
-                    const vectorA = p.genrePreferences.map(Number);
+                    const vectorA = p.genrePreferences;
                     const vectorB = currentGenres;
                     const similarity = calculateSimilarity(vectorA, vectorB);
 

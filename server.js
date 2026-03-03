@@ -63,15 +63,30 @@ publicRouter.post('/register', async (req, res) => {
         const existing = await User.findOne({ $or: [{ username }, { email }] });
         if (existing) return res.status(400).json({ success: false, message: "Username already exists" });
 
-        const newUser = new User({ 
-            username, 
-            email, 
-            password, 
-            level: 'noob',
-            preferredGenres: [], 
-            stats: { matchesPlayed: 0, wins: 0, losses: 0, draws: 0, totalPoints: 0 }
-        });
+        // const newUser = new User({ 
+        //     username, 
+        //     email, 
+        //     password, 
+        //     level: 'noob',
+        //     preferredGenres: [], 
+        //     stats: { matchesPlayed: 0, wins: 0, losses: 0, draws: 0, totalPoints: 0 }
+        // });
         
+        const newUser = new User({ 
+        username, 
+        email, 
+        password, 
+        level: 'noob',
+        preferredGenres: new Array(10).fill(0),
+        stats: { 
+            matchesPlayed: 0, 
+            wins: 0, 
+            losses: 0, 
+            draws: 0, 
+            totalPoints: 0 
+        }
+        });
+
         const savedUser = await newUser.save();
 
         // MANDATORY: Return the user object so Flutter can navigate
@@ -193,6 +208,45 @@ app.get('/admin/analytics', requireApiKey, async (req, res) => {
 });
 
 // --- MISSING ROUTE: Update User Genres ---
+// publicRouter.post('/users/update-genres', async (req, res) => {
+//     try {
+//         const { userId, preferredGenres } = req.body;
+
+//         if (!userId || !Array.isArray(preferredGenres)) {
+//             return res.status(400).json({ 
+//                 success: false, 
+//                 message: "Invalid data format" 
+//             });
+//         }
+
+//         // Find user and update their genres
+//         const updatedUser = await User.findByIdAndUpdate(
+//             userId,
+//             { preferredGenres: preferredGenres },
+//             { new: true } // This returns the user AFTER the update
+//         );
+
+//         if (!updatedUser) {
+//             return res.status(404).json({ success: false, message: "User not found" });
+//         }
+
+//         // Return the object in the format Flutter expects
+//         res.status(200).json({
+//             success: true,
+//             user: {
+//                 _id: updatedUser._id.toString(),
+//                 name: updatedUser.username,
+//                 email: updatedUser.email,
+//                 level: updatedUser.level,
+//                 genres: updatedUser.preferredGenres || [],
+//                 stats: updatedUser.stats
+//             }
+//         });
+//     } catch (err) {
+//         console.error("Genre Update Error:", err);
+//         res.status(500).json({ success: false, message: err.message });
+//     }
+// });
 publicRouter.post('/users/update-genres', async (req, res) => {
     try {
         const { userId, preferredGenres } = req.body;
@@ -204,18 +258,34 @@ publicRouter.post('/users/update-genres', async (req, res) => {
             });
         }
 
-        // Find user and update their genres
+        // TOTAL GENRES = 10 (because Flutter has 10 genres)
+        const TOTAL_GENRES = 10;
+
+        // Create binary vector [0,0,0,0,0,0,0,0,0,0]
+        const genreVector = new Array(TOTAL_GENRES).fill(0);
+
+        // Convert selected indexes to 1
+        preferredGenres.forEach(index => {
+            const idx = Number(index);
+            if (idx >= 0 && idx < TOTAL_GENRES) {
+                genreVector[idx] = 1;
+            }
+        });
+
+        // Save binary vector to DB
         const updatedUser = await User.findByIdAndUpdate(
             userId,
-            { preferredGenres: preferredGenres },
-            { new: true } // This returns the user AFTER the update
+            { preferredGenres: genreVector },
+            { new: true }
         );
 
         if (!updatedUser) {
-            return res.status(404).json({ success: false, message: "User not found" });
+            return res.status(404).json({ 
+                success: false, 
+                message: "User not found" 
+            });
         }
 
-        // Return the object in the format Flutter expects
         res.status(200).json({
             success: true,
             user: {
@@ -223,10 +293,11 @@ publicRouter.post('/users/update-genres', async (req, res) => {
                 name: updatedUser.username,
                 email: updatedUser.email,
                 level: updatedUser.level,
-                genres: updatedUser.preferredGenres || [],
+                genres: updatedUser.preferredGenres,
                 stats: updatedUser.stats
             }
         });
+
     } catch (err) {
         console.error("Genre Update Error:", err);
         res.status(500).json({ success: false, message: err.message });
@@ -284,18 +355,9 @@ app.post('/admin/questions', requireApiKey, async (req, res) => {
         });
         // const savedUser = await newUser.save();
         const savedQuestion = await newQ.save();
-        res.status(201).json(savedQuestion);
-
-        res.status(201).json({ 
-            success: true, 
-            user: {
-                _id: savedUser._id,
-                name: savedUser.username,
-                email: savedUser.email,
-                level: savedUser.level,
-                genres: savedUser.preferredGenres || [],
-                stats: savedUser.stats
-            }
+        res.status(201).json({
+        success: true,
+        data: savedQuestion
         });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -43,7 +43,7 @@ const userSchema = new mongoose.Schema({
   // to match your Socket logic: (user.preferredGenres || [])
   preferredGenres: {
     type: [Number],
-    default: []
+    default: () => new Array(10).fill(0)
   },
 
   playedQuestions: [

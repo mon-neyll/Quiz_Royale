@@ -32,7 +32,7 @@ const questionSchema = new mongoose.Schema({
     required: true,
     index: true,
     lowercase: true
-  },
+  }, //
   points: {
     type: Number,
     // The default function now safely checks if 'this' exists
