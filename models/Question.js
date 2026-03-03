@@ -30,7 +30,8 @@ const questionSchema = new mongoose.Schema({
     type: String,
     enum: ["easy", "medium", "hard"],
     required: true,
-    index: true
+    index: true,
+    lowercase: true
   },
   points: {
     type: Number,

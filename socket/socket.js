@@ -35,6 +35,14 @@ export const initSocket = (server) => {
                     // Strict requirement: Players must be in the same level tier
                     if (p.level !== currentLevel) return false;
 
+                    const toVector = (selectedIndices) => {
+                    const vector = new Array(10).fill(0); // 10 is the total number of genres
+                    selectedIndices.forEach(idx => {
+                        if (idx >= 0 && idx < 10) vector[idx] = 1;
+                    });
+                    return vector;
+                    };
+
                     // Matchmaking based on Cosine Similarity (min threshold 0.65)
                     const vectorA = p.genrePreferences.map(Number);
                     const vectorB = currentGenres;
@@ -69,21 +77,30 @@ export const initSocket = (server) => {
 
                     // Fetch 20 unique questions (10 for each player to pick from)
                     const allQuestions = await Question.aggregate([
-                        { 
-                            $match: { 
-                                difficulty: targetDifficulty, // 🔹 Filter by difficulty
-                                _id: { $nin: combinedHistory.map(id => new mongoose.Types.ObjectId(id)) } 
+                     { 
+                    $match: { 
+                        difficulty: { 
+                            $regex: new RegExp(`^${targetDifficulty}$`, 'i') 
+                                    },
+                        _id: { 
+                            $nin: combinedHistory.map(id => new mongoose.Types.ObjectId(id)) 
+                             } 
                             } 
-                        }, 
+                    }, 
                         { $sample: { size: 20 } }
                     ]);
                     if (allQuestions.length < 20) {
-                    console.log(`Fallback: Not enough ${targetDifficulty} questions. Fetching general questions.`);
-                    const fallbackQuestions = await Question.aggregate([
-                        { $match: { _id: { $nin: combinedHistory.map(id => new mongoose.Types.ObjectId(id)) } } },
-                        { $sample: { size: 20 } }
-                    ]);
-                    allQuestions.push(...fallbackQuestions.slice(0, 20 - allQuestions.length));
+                    // console.log(`Fallback: Not enough ${targetDifficulty} questions. Fetching general questions.`);
+                    // const fallbackQuestions = await Question.aggregate([
+                    //     { $match: { _id: { $nin: combinedHistory.map(id => new mongoose.Types.ObjectId(id)) } } },
+                    //     { $sample: { size: 20 } }
+                    // ]);
+                    // allQuestions.push(...fallbackQuestions.slice(0, 20 - allQuestions.length));
+                    console.log(`❌ Not enough ${targetDifficulty} questions.`);
+                    socket.emit('error', {
+                        message: `Not enough ${targetDifficulty} questions available.`
+                    });
+                    return;
                     }
 
                     const p1Inv = allQuestions.slice(0, 10);
