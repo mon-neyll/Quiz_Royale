@@ -52,6 +52,15 @@ export const initSocket = (server) => {
                     const opponentSocket = io.sockets.sockets.get(opponent.socketId);
                     if (opponentSocket) opponentSocket.join(roomId);
 
+                    // 1. Determine target difficulty based on level
+                    // Logic: Noob -> Easy, Intermediate -> Medium, Pro -> Hard
+                    const difficultyMap = {
+                        'noob': 'Easy',
+                        'intermediate': 'Medium',
+                        'pro': 'Hard'
+                    };
+                    const targetDifficulty = difficultyMap[currentLevel] || 'Easy';
+
                     // Combine histories to ensure NO player receives a repeated question
                     const combinedHistory = [
                         ...(user.playedQuestions || []),
@@ -62,11 +71,20 @@ export const initSocket = (server) => {
                     const allQuestions = await Question.aggregate([
                         { 
                             $match: { 
+                                difficulty: targetDifficulty, // 🔹 Filter by difficulty
                                 _id: { $nin: combinedHistory.map(id => new mongoose.Types.ObjectId(id)) } 
                             } 
                         }, 
                         { $sample: { size: 20 } }
                     ]);
+                    if (allQuestions.length < 20) {
+                    console.log(`Fallback: Not enough ${targetDifficulty} questions. Fetching general questions.`);
+                    const fallbackQuestions = await Question.aggregate([
+                        { $match: { _id: { $nin: combinedHistory.map(id => new mongoose.Types.ObjectId(id)) } } },
+                        { $sample: { size: 20 } }
+                    ]);
+                    allQuestions.push(...fallbackQuestions.slice(0, 20 - allQuestions.length));
+                    }
 
                     const p1Inv = allQuestions.slice(0, 10);
                     const p2Inv = allQuestions.slice(10, 20);
