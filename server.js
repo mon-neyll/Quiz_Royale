@@ -252,47 +252,40 @@ publicRouter.post('/users/update-genres', async (req, res) => {
   try {
     const { userId, preferredGenres } = req.body;
 
-    // 1. Validation
-    if (!userId || !preferredGenres) {
-      console.log("❌ Missing Data:", { userId, preferredGenres });
-      return res.status(400).json({ success: false, message: "Missing userId or genres" });
-    }
-
+    // 1. Validate ID
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      console.log("❌ Invalid ID Format:", userId);
-      return res.status(400).json({ success: false, message: "Invalid User ID format" });
+      return res.status(400).json({ success: false, message: "Invalid User ID" });
     }
 
-    // 2. Update the Database
-    // We use findByIdAndUpdate with { new: true } to get the updated document back
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { $set: { preferredGenres: preferredGenres } }, 
-      { new: true, runValidators: true }
+    // 2. Ensure we are dealing with Numbers (Flutter sometimes sends strings if not careful)
+    const formattedGenres = preferredGenres.map(g => Number(g));
+
+    // 3. Force the update directly at the MongoDB driver level to bypass Mongoose logic bugs
+    const result = await mongoose.model("User").collection.updateOne(
+      { _id: new mongoose.Types.ObjectId(userId) },
+      { $set: { preferredGenres: formattedGenres } }
     );
 
-    if (!updatedUser) {
-      console.log("❌ User not found in DB for ID:", userId);
+    if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    console.log(`✅ Genres updated for ${updatedUser.username}:`, updatedUser.preferredGenres);
+    // 4. Fetch the fresh user to confirm
+    const updatedUser = await mongoose.model("User").findById(userId);
 
-    // 3. Response formatted for your Flutter ProfileScreen
+    console.log("✅ DB Update Confirmed:", updatedUser.preferredGenres);
+
     res.status(200).json({
       success: true,
       user: {
-        _id: updatedUser._id.toString(),
+        _id: updatedUser._id,
         name: updatedUser.username,
-        email: updatedUser.email,
-        level: updatedUser.level,
         genres: updatedUser.preferredGenres,
         stats: updatedUser.stats
       }
     });
-
   } catch (err) {
-    console.error("❌ Server Error during genre update:", err);
+    console.error("Critical Update Error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
