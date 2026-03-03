@@ -258,24 +258,10 @@ publicRouter.post('/users/update-genres', async (req, res) => {
             });
         }
 
-        // TOTAL GENRES = 10 (because Flutter has 10 genres)
-        const TOTAL_GENRES = 10;
-
-        // Create binary vector [0,0,0,0,0,0,0,0,0,0]
-        const genreVector = new Array(TOTAL_GENRES).fill(0);
-
-        // Convert selected indexes to 1
-        preferredGenres.forEach(index => {
-            const idx = Number(index);
-            if (idx >= 0 && idx < TOTAL_GENRES) {
-                genreVector[idx] = 1;
-            }
-        });
-
-        // Save binary vector to DB
+        // Directly save what Flutter sends
         const updatedUser = await User.findByIdAndUpdate(
             userId,
-            { preferredGenres: genreVector },
+            { preferredGenres },
             { new: true }
         );
 
