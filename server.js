@@ -247,41 +247,53 @@ app.get('/admin/analytics', requireApiKey, async (req, res) => {
 //         res.status(500).json({ success: false, message: err.message });
 //     }
 // });
+// --- server.js (Updated Route) ---
 publicRouter.post('/users/update-genres', async (req, res) => {
   try {
     const { userId, preferredGenres } = req.body;
 
-    console.log("Incoming ID:", userId);
-    console.log("Incoming Genres:", preferredGenres);
+    // 1. Validation
+    if (!userId || !preferredGenres) {
+      console.log("❌ Missing Data:", { userId, preferredGenres });
+      return res.status(400).json({ success: false, message: "Missing userId or genres" });
+    }
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ message: "Invalid user ID" });
+      console.log("❌ Invalid ID Format:", userId);
+      return res.status(400).json({ success: false, message: "Invalid User ID format" });
     }
 
-    if (!Array.isArray(preferredGenres) || preferredGenres.length !== 10) {
-      return res.status(400).json({ message: "Genres must be 10-length array" });
-    }
-
+    // 2. Update the Database
+    // We use findByIdAndUpdate with { new: true } to get the updated document back
     const updatedUser = await User.findByIdAndUpdate(
       userId,
-      { $set: { preferredGenres: preferredGenres } }, // 🔥 FORCE overwrite
-      { new: true }
+      { $set: { preferredGenres: preferredGenres } }, 
+      { new: true, runValidators: true }
     );
 
-    console.log("Updated DB Value:", updatedUser?.preferredGenres);
-
     if (!updatedUser) {
-      return res.status(404).json({ message: "User not found" });
+      console.log("❌ User not found in DB for ID:", userId);
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    console.log(`✅ Genres updated for ${updatedUser.username}:`, updatedUser.preferredGenres);
+
+    // 3. Response formatted for your Flutter ProfileScreen
     res.status(200).json({
       success: true,
-      genres: updatedUser.preferredGenres
+      user: {
+        _id: updatedUser._id.toString(),
+        name: updatedUser.username,
+        email: updatedUser.email,
+        level: updatedUser.level,
+        genres: updatedUser.preferredGenres,
+        stats: updatedUser.stats
+      }
     });
 
   } catch (err) {
-    console.error("Update Error:", err);
-    res.status(500).json({ message: err.message });
+    console.error("❌ Server Error during genre update:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
