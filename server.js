@@ -248,46 +248,41 @@ app.get('/admin/analytics', requireApiKey, async (req, res) => {
 //     }
 // });
 publicRouter.post('/users/update-genres', async (req, res) => {
-    try {
-        const { userId, preferredGenres } = req.body;
+  try {
+    const { userId, preferredGenres } = req.body;
 
-        if (!userId || !Array.isArray(preferredGenres)) {
-            return res.status(400).json({ 
-                success: false, 
-                message: "Invalid data format" 
-            });
-        }
+    console.log("Incoming ID:", userId);
+    console.log("Incoming Genres:", preferredGenres);
 
-        // Directly save what Flutter sends
-        const updatedUser = await User.findByIdAndUpdate(
-            userId,
-            { preferredGenres },
-            { new: true }
-        );
-
-        if (!updatedUser) {
-            return res.status(404).json({ 
-                success: false, 
-                message: "User not found" 
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            user: {
-                _id: updatedUser._id.toString(),
-                name: updatedUser.username,
-                email: updatedUser.email,
-                level: updatedUser.level,
-                genres: updatedUser.preferredGenres,
-                stats: updatedUser.stats
-            }
-        });
-
-    } catch (err) {
-        console.error("Genre Update Error:", err);
-        res.status(500).json({ success: false, message: err.message });
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: "Invalid user ID" });
     }
+
+    if (!Array.isArray(preferredGenres) || preferredGenres.length !== 10) {
+      return res.status(400).json({ message: "Genres must be 10-length array" });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: { preferredGenres: preferredGenres } }, // 🔥 FORCE overwrite
+      { new: true }
+    );
+
+    console.log("Updated DB Value:", updatedUser?.preferredGenres);
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      genres: updatedUser.preferredGenres
+    });
+
+  } catch (err) {
+    console.error("Update Error:", err);
+    res.status(500).json({ message: err.message });
+  }
 });
 
 /** * 2. QUESTION MANAGEMENT */
