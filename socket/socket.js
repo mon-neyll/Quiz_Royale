@@ -235,10 +235,12 @@ export const initSocket = (server) => {
                     if (!isDraw) {
                         if (isWinner) {
                             if (p.level === "noob") statChange = 20;
-                            else if (p.level === "intermediate") statChange = 10;
-                            else if (p.level === "pro") statChange = 5;
+                            else if (p.level === "intermediate") statChange = 15;
+                            else if (p.level === "pro") statChange = 10;
                         } else {
-                            statChange = (p.level === "pro") ? -15 : -10;
+                            if (p.level === "noob") statChange = -5;
+                            else if (p.level === "intermediate") statChange = -10;
+                            else if (p.level === "pro") statChange = -15;
                         }
                     }
 
