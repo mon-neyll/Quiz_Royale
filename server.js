@@ -290,6 +290,28 @@ publicRouter.post('/users/update-genres', async (req, res) => {
   }
 });
 
+// GET: Fetch single user by ID
+publicRouter.get('/users/:id', async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id).lean();
+        if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+        res.status(200).json({
+            success: true,
+            user: {
+                _id: user._id.toString(),
+                name: user.username,
+                email: user.email,
+                level: user.level,
+                genres: user.preferredGenres || [],
+                stats: user.stats
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 /** * 2. QUESTION MANAGEMENT */
 app.get('/admin/questions', requireApiKey, async (req, res) => {
     try {
