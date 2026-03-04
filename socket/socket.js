@@ -269,7 +269,10 @@ export const initSocket = (server) => {
                         io.to(p.socketId).emit('stats_update', {
                             points: updatedUser.stats.totalPoints,
                             tier: updatedUser.level,
-                            matchesPlayed: updatedUser.stats.matchesPlayed
+                            matchesPlayed: updatedUser.stats.matchesPlayed,
+                            wins: updatedUser.stats.wins,         
+                            losses: updatedUser.stats.losses,
+                            draws: updatedUser.stats.draws,
                         });
                     }
                 }
