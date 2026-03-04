@@ -272,7 +272,7 @@ export const initSocket = (server) => {
                             matchesPlayed: updatedUser.stats.matchesPlayed,
                             wins: updatedUser.stats.wins,         
                             losses: updatedUser.stats.losses,
-                            draws: updatedUser.stats.draws,
+                            draws: updatedUser.stats.draws,//added
                         });
                     }
                 }
