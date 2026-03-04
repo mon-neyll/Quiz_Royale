@@ -452,37 +452,37 @@ export const initSocket = (server) => {
 
         // Event: Player submits their 5 chosen questions for the opponent
         socket.on('submit_selection', async ({ roomId, userId, selectedIds }) => {
-            const game = activeGames[roomId];
-            if (!game || game.duelStarted) return;
+    const game = activeGames[roomId];
+    if (!game || game.duelStarted) return;
 
-            const player = game.p1.userId === userId ? game.p1 : game.p2;
+    const player = game.p1.userId === userId ? game.p1 : game.p2;
 
-            // Normalize both sides to plain strings before comparing
-            const normalizedSelectedIds = selectedIds.map(id =>
-                typeof id === 'object' ? id.toString() : String(id)
-            );
+    // Normalize both sides to plain strings before comparing
+    const normalizedSelectedIds = selectedIds.map(id =>
+        typeof id === 'object' ? id.toString() : String(id)
+    );
 
-            player.selections = player.inventory
-                .filter(q => {
-                    const qId = q._id?.$oid      // handles { $oid: "..." } format
-                            ?? q._id?.toString() // handles ObjectId format
-                            ?? String(q._id);    // handles plain string
-                    return normalizedSelectedIds.includes(qId);
-                })
-                .slice(0, 5);
+    player.selections = player.inventory
+        .filter(q => {
+            const qId = q._id?.$oid
+                     ?? q._id?.toString()
+                     ?? String(q._id);
+            return normalizedSelectedIds.includes(qId);
+        })
+        .slice(0, 5);
 
-            // Fallback — if filter still returns 0, just take first 5
-            if (player.selections.length === 0) {
-                console.warn(⚠️ Selection filter returned 0 for ${userId}, using fallback);
-                player.selections = player.inventory.slice(0, 5);
-            }
+    // Fallback — if filter still returns 0, just take first 5
+    if (player.selections.length === 0) {
+        console.warn(`Selection filter returned 0 for ${userId}, using fallback`);
+        player.selections = player.inventory.slice(0, 5);
+    }
 
-            console.log(✅ ${userId} selections: ${player.selections.length});
+    console.log(`${userId} selections: ${player.selections.length}`);
 
-            if (game.p1.selections && game.p2.selections) {
-                await startDuel(roomId);
-            }
-        });
+    if (game.p1.selections && game.p2.selections) {
+        await startDuel(roomId);
+    }
+});
 
         const finishGame = async (roomId) => {
             const game = activeGames[roomId];
