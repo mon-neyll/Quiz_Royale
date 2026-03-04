@@ -26,6 +26,7 @@ app.use(cors({
 })); 
 
 app.use(express.json());
+app.use(fileUpload());
 app.use(express.static('public'));
 
 // FIXED: Auto-trimming middleware. This prevents "Invalid Credentials" 
@@ -290,6 +291,87 @@ publicRouter.post('/users/update-genres', async (req, res) => {
   }
 });
 
+publicRouter.get('/questions/practice', async (req, res) => {
+    try {
+        const { genres, limit } = req.query;
+
+        // ── 1. Parse limit (default 5, max 20) ──────────────
+        const questionLimit = Math.min(parseInt(limit) || 5, 20);
+
+        // ── 2. Genre index → name map ────────────────────────
+        // These must exactly match what your BERT pipeline writes
+        // into the 'genre' field of the Question collection.
+        const genreMap = {
+            0: 'Society & Culture',
+            1: 'Science & Mathematics',
+            2: 'Health',
+            3: 'Education & Reference',
+            4: 'Computers & Internet',
+            5: 'Sports',
+            6: 'Business & Finance',
+            7: 'Entertainment & Music',
+            8: 'Family & Relationships',
+            9: 'Politics & Government',
+        };
+
+        // ── 3. Binary vector → selected genre name strings ───
+        // "1,0,1,0,0,1,0,0,0,0" → ["Society & Culture", "Health", "Sports"]
+        let matchFilter = {};
+
+        if (genres && genres.trim() !== '') {
+            const vector = genres
+                .split(',')
+                .map(v => parseInt(v.trim()));
+
+            const selectedGenreNames = vector
+                .map((val, index) => (val === 1 ? genreMap[index] : null))
+                .filter(Boolean);
+
+            if (selectedGenreNames.length > 0) {
+                // Direct $in — no regex needed since genre is stored
+                // as an exact string in the Question schema
+                matchFilter.genre = { $in: selectedGenreNames };
+            }
+        }
+        // If all zeros or param missing → matchFilter = {}
+        // which fetches from ALL genres as a safe fallback
+
+        // ── 4. Fetch random questions via aggregation ────────
+        const questions = await Question.aggregate([
+            { $match: matchFilter },
+            { $sample: { size: questionLimit } },
+            {
+                $project: {
+                    _id: 1,
+                    questionText: 1,
+                    options: 1,
+                    correctAnswer: 1,
+                    genre: 1,
+                    difficulty: 1,
+                    // 'points' from schema is also available if needed
+                },
+            },
+        ]);
+
+        if (questions.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No questions found for your selected genres. Try updating your preferences in your profile.',
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            count: questions.length,
+            questions,
+        });
+
+    } catch (err) {
+        console.error('Practice questions error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // GET: Fetch single user by ID
 publicRouter.get('/users/:id', async (req, res) => {
     try {
@@ -359,7 +441,7 @@ app.post('/admin/questions', requireApiKey, async (req, res) => {
             options: req.body.options,
             correctAnswer: req.body.correctAnswer,
             genre: req.body.genre,
-            difficulty: req.body.difficulty || 'intermediate'
+            difficulty: req.body.difficulty || 'medium'
         });
         // const savedUser = await newUser.save();
         const savedQuestion = await newQ.save();

@@ -8,9 +8,293 @@ export const initSocket = (server) => {
     const io = new Server(server, { cors: { origin: "*" } });
     let lobby = [];
     const activeGames = {};
+    const challengeRooms = {};
+
+    const generateRoomCode = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+        code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+    };
+
+    const SERVER_LEADERBOARD_LIMIT = 50;
+
+    const broadcastLeaderboard = async (io) => {
+    try {
+        const players = await User.find(
+            { isBanned: false },
+            { username: 1, level: 1, stats: 1 }
+        )
+            .sort({ 'stats.totalPoints': -1 })
+            .limit(SERVER_LEADERBOARD_LIMIT)
+            .lean();
+
+        const leaderboard = players.map((u, index) => ({
+            rank:          index + 1,
+            userId:        u._id.toString(),
+            name:          u.username,
+            tier:          u.level,
+            points:        u.stats?.totalPoints    ?? 0,
+            wins:          u.stats?.wins           ?? 0,
+            losses:        u.stats?.losses         ?? 0,
+            draws:         u.stats?.draws          ?? 0,
+            matchesPlayed: u.stats?.matchesPlayed  ?? 0,
+            winRate: u.stats?.matchesPlayed > 0
+                ? ((u.stats.wins / u.stats.matchesPlayed) * 100).toFixed(1)
+                : '0.0',
+        }));
+
+        io.emit('leaderboard_update', { leaderboard });
+    } catch (err) {
+        console.error('Leaderboard broadcast error:', err);
+    }
+    };
 
     io.on('connection', (socket) => {
         console.log("User Connected: " + socket.id);
+
+        socket.on('get_leaderboard', async (data) => {
+        try {
+            // Client sends a limit; cap it at SERVER_LEADERBOARD_LIMIT so clients
+            // can never request more than you allow. Falls back to the server limit
+            // if client sends nothing.
+            const requestedLimit = data?.limit ?? SERVER_LEADERBOARD_LIMIT;
+            const limit = Math.min(requestedLimit, SERVER_LEADERBOARD_LIMIT);
+
+            const players = await User.find(
+                { isBanned: false },
+                { username: 1, level: 1, stats: 1 }
+            )
+                .sort({ 'stats.totalPoints': -1 })
+                .limit(limit)
+                .lean();
+
+            const leaderboard = players.map((u, index) => ({
+                rank:          index + 1,
+                userId:        u._id.toString(),
+                name:          u.username,
+                tier:          u.level,
+                points:        u.stats?.totalPoints    ?? 0,
+                wins:          u.stats?.wins           ?? 0,
+                losses:        u.stats?.losses         ?? 0,
+                draws:         u.stats?.draws          ?? 0,
+                matchesPlayed: u.stats?.matchesPlayed  ?? 0,
+                winRate: u.stats?.matchesPlayed > 0
+                    ? ((u.stats.wins / u.stats.matchesPlayed) * 100).toFixed(1)
+                    : '0.0',
+            }));
+
+            socket.emit('leaderboard_update', { leaderboard });
+        } catch (err) {
+            console.error('get_leaderboard error:', err);
+            socket.emit('error', { message: 'Could not load leaderboard.' });
+        }
+        });
+
+        socket.on('create_room', async ({ userId }) => {
+            try {
+                const user = await User.findById(userId).lean();
+                if (!user || user.isBanned) {
+                    socket.emit('error', { message: 'Account restricted or not found.' });
+                    return;
+                }
+
+                // Generate a unique 6-char code
+                let code;
+                let attempts = 0;
+                do {
+                    code = generateRoomCode();
+                    attempts++;
+                } while (challengeRooms[code] && attempts < 20);
+
+                challengeRooms[code] = {
+                    code,
+                    host: {
+                        socketId: socket.id,
+                        userId: user._id.toString(),
+                        name: user.username,
+                        level: user.level,
+                        genrePreferences: user.preferredGenres || new Array(10).fill(0),
+                        playedQuestions: user.playedQuestions || [],
+                    },
+                    createdAt: Date.now(),
+                };
+
+                socket.join(`challenge_${code}`);
+                socket.emit('room_created', { code });
+
+                // Auto-expire after 60 seconds if friend never joins
+                setTimeout(() => {
+                    if (challengeRooms[code]) {
+                        socket.emit('room_expired', {
+                            message: 'Room expired. No one joined in time.',
+                        });
+                        socket.leave(`challenge_${code}`);
+                        delete challengeRooms[code];
+                        console.log(`Challenge room ${code} expired.`);
+                    }
+                }, 60000);
+
+                console.log(`Challenge room created: ${code} by ${user.username}`);
+            } catch (err) {
+                console.error('create_room error:', err);
+                socket.emit('error', { message: 'Could not create room.' });
+            }
+        });
+
+        const startDuel = async (roomId) => {
+            const game = activeGames[roomId];
+            if (!game || game.duelStarted) return;
+            game.duelStarted = true;
+
+            try {
+                // Questions are swapped: p1 plays what p2 selected, and vice versa
+                const p1History = game.p2.selections.map(q => new mongoose.Types.ObjectId(q._id));
+                const p2History = game.p1.selections.map(q => new mongoose.Types.ObjectId(q._id));
+
+                // Save these to playedQuestions immediately to prevent future repeats
+                await Promise.all([
+                    User.updateOne({ _id: game.p1.userId }, { $addToSet: { playedQuestions: { $each: p1History } } }),
+                    User.updateOne({ _id: game.p2.userId }, { $addToSet: { playedQuestions: { $each: p2History } } })
+                ]);
+            } catch (dbErr) { console.error("History Update Error:", dbErr); }
+
+            io.to(roomId).emit('start_duel', {
+                p1Questions: game.p2.selections, 
+                p2Questions: game.p1.selections, 
+                timer: 60
+            });
+        };
+
+
+        socket.on('join_room', async ({ userId, code }) => {
+            try {
+                const trimmedCode = (code || '').trim().toUpperCase();
+                const room = challengeRooms[trimmedCode];
+
+                if (!room) {
+                    socket.emit('error', { message: 'Invalid or expired room code.' });
+                    return;
+                }
+
+                if (room.host.socketId === socket.id) {
+                    socket.emit('error', { message: 'You cannot join your own room.' });
+                    return;
+                }
+
+                const user = await User.findById(userId).lean();
+                if (!user || user.isBanned) {
+                    socket.emit('error', { message: 'Account restricted or not found.' });
+                    return;
+                }
+
+                // Room is valid — cancel expiry by deleting it from challengeRooms
+                // before the setTimeout fires (the timeout checks challengeRooms[code])
+                delete challengeRooms[trimmedCode];
+
+                const host = room.host;
+                const guest = {
+                    socketId: socket.id,
+                    userId: user._id.toString(),
+                    name: user.username,
+                    level: user.level,
+                    genrePreferences: user.preferredGenres || new Array(10).fill(0),
+                    playedQuestions: user.playedQuestions || [],
+                };
+
+                const roomId = `challenge_${trimmedCode}`;
+                socket.join(roomId);
+
+                // Reuse Quick Match difficulty logic
+                const difficultyMap = { noob: 'Easy', intermediate: 'Medium', pro: 'Hard' };
+                // Use host's level as the baseline (both players see same difficulty)
+                const targetDifficulty = difficultyMap[host.level] || 'Easy';
+
+                const combinedHistory = [
+                    ...(host.playedQuestions || []),
+                    ...(guest.playedQuestions || []),
+                ];
+
+                const allQuestions = await Question.aggregate([
+                    {
+                        $match: {
+                            difficulty: { $regex: new RegExp(`^${targetDifficulty}$`, 'i') },
+                            _id: { $nin: combinedHistory.map(id => new mongoose.Types.ObjectId(id)) },
+                        },
+                    },
+                    { $sample: { size: 20 } },
+                ]);
+
+                if (allQuestions.length < 20) {
+                    io.to(roomId).emit('error', {
+                        message: `Not enough ${targetDifficulty} questions available.`,
+                    });
+                    return;
+                }
+
+                const p1Inv = allQuestions.slice(0, 10);
+                const p2Inv = allQuestions.slice(10, 20);
+
+                // Store in activeGames — same structure as Quick Match so
+                // submit_selection, startDuel, submit_score, finishGame all work unchanged
+                activeGames[roomId] = {
+                    roomId,
+                    p1: {
+                        socketId: host.socketId,
+                        userId: host.userId,
+                        name: host.name,
+                        level: host.level,
+                        scoreObj: null,
+                        inventory: p1Inv,
+                    },
+                    p2: {
+                        socketId: guest.socketId,
+                        userId: guest.userId,
+                        name: guest.name,
+                        level: guest.level,
+                        scoreObj: null,
+                        inventory: p2Inv,
+                    },
+                    duelStarted: false,
+                };
+
+                // Fire start_selection — identical payload to Quick Match
+                io.to(roomId).emit('start_selection', {
+                    roomId,
+                    timer: 20,
+                    p1: { id: host.userId,  name: host.name,  inventory: p1Inv },
+                    p2: { id: guest.userId, name: guest.name, inventory: p2Inv },
+                });
+
+                // Auto-pick timeout (same 22s as Quick Match)
+                setTimeout(async () => {
+                    const game = activeGames[roomId];
+                    if (game && !game.duelStarted) {
+                        if (!game.p1.selections) game.p1.selections = game.p1.inventory.slice(0, 5);
+                        if (!game.p2.selections) game.p2.selections = game.p2.inventory.slice(0, 5);
+                        await startDuel(roomId);
+                    }
+                }, 22000);
+
+                console.log(`Challenge match started: ${host.name} vs ${guest.name} (room ${trimmedCode})`);
+            } catch (err) {
+                console.error('join_room error:', err);
+                socket.emit('error', { message: 'Could not join room.' });
+            }
+        });
+
+        socket.on('cancel_room', ({ code }) => {
+            const trimmedCode = (code || '').trim().toUpperCase();
+            if (challengeRooms[trimmedCode]) {
+                socket.leave(`challenge_${trimmedCode}`);
+                delete challengeRooms[trimmedCode];
+                console.log(`Challenge room ${trimmedCode} cancelled by host.`);
+            }
+        });
+
+
 
         socket.on('join_match', async ({ userId }) => {
             try {
@@ -181,29 +465,77 @@ export const initSocket = (server) => {
             }
         });
 
-        const startDuel = async (roomId) => {
+        const finishGame = async (roomId) => {
             const game = activeGames[roomId];
-            if (!game || game.duelStarted) return;
-            game.duelStarted = true;
+            if (!game) return;
+
+            const s1 = game.p1.finalMatchScore || 0;
+            const s2 = game.p2.finalMatchScore || 0;
+            let winnerId = s1 > s2 ? game.p1.userId : (s2 > s1 ? game.p2.userId : null);
+            let isDraw = s1 === s2;
 
             try {
-                // Questions are swapped: p1 plays what p2 selected, and vice versa
-                const p1History = game.p2.selections.map(q => new mongoose.Types.ObjectId(q._id));
-                const p2History = game.p1.selections.map(q => new mongoose.Types.ObjectId(q._id));
+                for (const p of [game.p1, game.p2]) {
+                    const isWinner = p.userId === winnerId;
+                    
+                    let statChange = 0;
+                    if (!isDraw) {
+                        if (isWinner) {
+                            if (p.level === "noob") statChange = 20;
+                            else if (p.level === "intermediate") statChange = 15;
+                            else if (p.level === "pro") statChange = 10;
+                        } else {
+                            if (p.level === "noob") statChange = -5;
+                            else if (p.level === "intermediate") statChange = -10;
+                            else if (p.level === "pro") statChange = -15;
+                        }
+                    }
 
-                // Save these to playedQuestions immediately to prevent future repeats
-                await Promise.all([
-                    User.updateOne({ _id: game.p1.userId }, { $addToSet: { playedQuestions: { $each: p1History } } }),
-                    User.updateOne({ _id: game.p2.userId }, { $addToSet: { playedQuestions: { $each: p2History } } })
-                ]);
-            } catch (dbErr) { console.error("History Update Error:", dbErr); }
+                    let updatedUser = await User.findByIdAndUpdate(p.userId, {
+                        $inc: {
+                            "stats.matchesPlayed": 1,
+                            "stats.wins": isWinner ? 1 : 0,
+                            "stats.losses": (!isWinner && !isDraw) ? 1 : 0,
+                            "stats.draws": isDraw ? 1 : 0,
+                            "stats.totalPoints": statChange,
+                        }
+                    }, { returnDocument: 'after' });
+                    
+                    if (updatedUser) {
+                        let targetLevel = updatedUser.level;
+                        if (updatedUser.stats.totalPoints >= 500 && updatedUser.level === "intermediate") {
+                            targetLevel = "pro";
+                        } else if (updatedUser.stats.totalPoints >= 200 && updatedUser.level === "noob") {
+                            targetLevel = "intermediate";
+                        }
 
-            io.to(roomId).emit('start_duel', {
-                p1Questions: game.p2.selections, 
-                p2Questions: game.p1.selections, 
-                timer: 60
+                        if (targetLevel !== updatedUser.level) {
+                            updatedUser = await User.findByIdAndUpdate(p.userId, { level: targetLevel }, { new: true });
+                        }
+
+                        io.to(p.socketId).emit('stats_update', {
+                            points: updatedUser.stats.totalPoints,
+                            tier: updatedUser.level,
+                            matchesPlayed: updatedUser.stats.matchesPlayed,
+                            wins: updatedUser.stats.wins,         
+                            losses: updatedUser.stats.losses,
+                            draws: updatedUser.stats.draws,//added
+                        });
+                    }
+                }
+            } catch (err) { console.error("Finalizing error:", err); }
+
+            io.to(roomId).emit('game_over', { 
+                results: [
+                        { userId: game.p1.userId, name: game.p1.name, matchScore: s1, correct: game.p1.scoreObj?.correct ?? 0, total: 5 }, 
+                        { userId: game.p2.userId, name: game.p2.name, matchScore: s2, correct: game.p2.scoreObj?.correct ?? 0, total: 5 }
+                    ],  
+                winner: winnerId 
             });
+            delete activeGames[roomId];
+            await broadcastLeaderboard(io);
         };
+
 
         socket.on('submit_score', ({ roomId, userId, score }) => {
             const game = activeGames[roomId];
@@ -286,6 +618,7 @@ export const initSocket = (server) => {
                 winner: winnerId 
             });
             delete activeGames[roomId];
+            await broadcastLeaderboard(io);
         };
 
         socket.on('disconnect', () => {
@@ -297,6 +630,12 @@ export const initSocket = (server) => {
                     io.to(oppId).emit('opponent_left', { message: "Opponent disconnected." });
                     delete activeGames[roomId];
                     break;
+                }
+            }
+            for (const code in challengeRooms) {
+                if (challengeRooms[code].host.socketId === socket.id) {
+                    delete challengeRooms[code];
+                    console.log(`Challenge room ${code} removed (host disconnected).`);
                 }
             }
         });
