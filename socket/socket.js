@@ -26,7 +26,7 @@ export const initSocket = (server) => {
                 (user.preferredGenres && user.preferredGenres.length === 10)
                 ? user.preferredGenres
                 : new Array(10).fill(0);
-                const currentName = user.name || "Anonymous"; 
+                const currentName = user.username || "Anonymous"; 
                 const currentLevel = user.level || "noob";
 
                 console.log(`Lobby Entry: ${currentName} | Level: ${currentLevel} | Genres: [${currentGenres}]`);
@@ -275,9 +275,9 @@ export const initSocket = (server) => {
 
             io.to(roomId).emit('game_over', { 
                 results: [
-                    { userId: game.p1.userId, name: game.p1.name, matchScore: s1 }, 
-                    { userId: game.p2.userId, name: game.p2.name, matchScore: s2 }
-                ], 
+                        { userId: game.p1.userId, name: game.p1.name, matchScore: s1, correct: game.p1.scoreObj?.correct ?? 0, total: 5 }, 
+                        { userId: game.p2.userId, name: game.p2.name, matchScore: s2, correct: game.p2.scoreObj?.correct ?? 0, total: 5 }
+                    ],  
                 winner: winnerId 
             });
             delete activeGames[roomId];
