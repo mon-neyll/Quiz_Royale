@@ -38,6 +38,14 @@ const userSchema = new mongoose.Schema({
     default: false,
     index: true
   },
+  isVerified: {
+    type: Boolean,
+    default: false,
+  },
+  verificationToken: {
+      type: String,
+      default: null,
+  },
 
   // FIXED: Changed from 'genrePreferences' to 'genres' 
   // to match your Socket logic: (user.preferredGenres || [])

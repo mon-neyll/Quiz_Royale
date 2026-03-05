@@ -19,6 +19,7 @@
     "express-fileupload": "^1.5.2",
     "mongodb": "^7.0.0",
     "mongoose": "^9.2.1",
+    "nodemailer": "^8.0.1",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
     "socket.io": "^4.8.3",

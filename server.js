@@ -7,11 +7,21 @@ import readline from 'readline';
 import http from 'http';
 import cors from 'cors'; 
 import bcrypt from 'bcrypt';
+import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 import { createRequire } from 'module';
 import Question from './models/Question.js';
 import User from './models/User.js'; 
 import { initSocket } from './socket/socket.js';
 import path from 'path';
+
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+    },
+});
 
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
@@ -61,51 +71,98 @@ const publicRouter = express.Router();
 // --- server.js ---
 publicRouter.post('/register', async (req, res) => {
     try {
-        const { username, password, email } = req.body; 
+        const { username, password, email } = req.body;
         const existing = await User.findOne({ $or: [{ username }, { email }] });
-        if (existing) return res.status(400).json({ success: false, message: "Username already exists" });
+        if (existing) return res.status(400).json({ 
+            success: false, 
+            message: "Username or email already exists" 
+        });
 
-        // const newUser = new User({ 
-        //     username, 
-        //     email, 
-        //     password, 
-        //     level: 'noob',
-        //     preferredGenres: [], 
-        //     stats: { matchesPlayed: 0, wins: 0, losses: 0, draws: 0, totalPoints: 0 }
-        // });
-        
         const hashedPassword = await bcrypt.hash(password, 10);
-        const newUser = new User({ 
-        username, 
-        email, 
-        password: hashedPassword, 
-        level: 'noob',
-        preferredGenres: new Array(10).fill(0),
-        stats: { 
-            matchesPlayed: 0, 
-            wins: 0, 
-            losses: 0, 
-            draws: 0, 
-            totalPoints: 0 
-        }
+        const verificationToken = crypto.randomBytes(32).toString('hex');
+
+        const newUser = new User({
+            username,
+            email,
+            password: hashedPassword,
+            level: 'noob',
+            preferredGenres: new Array(10).fill(0),
+            isVerified: false,
+            verificationToken,
+            stats: {
+                matchesPlayed: 0,
+                wins: 0,
+                losses: 0,
+                draws: 0,
+                totalPoints: 0
+            }
         });
 
         const savedUser = await newUser.save();
 
-        // MANDATORY: Return the user object so Flutter can navigate
-        res.status(201).json({ 
-            success: true, 
-            user: {
-                _id: savedUser._id.toString(), // Ensure ID is a string
-                name: savedUser.username,
-                email: savedUser.email,
-                level: savedUser.level,
-                genres: savedUser.preferredGenres || [],
-                stats: savedUser.stats
-            }
+        // Send verification email
+        const verifyUrl = `https://quiz-royale-ash0.onrender.com/api/verify-email/${verificationToken}`;
+
+        await transporter.sendMail({
+            from: `"Quiz Royale" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: 'Verify your Quiz Royale account',
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 30px; border-radius: 10px; background: #f5f5f5;">
+                    <h2 style="color: #1E88E5; text-align: center;">Welcome to Quiz Royale!</h2>
+                    <p style="color: #333; text-align: center;">Hi <strong>${username}</strong>, thanks for registering.</p>
+                    <p style="color: #333; text-align: center;">Please verify your email to activate your account:</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="${verifyUrl}" 
+                           style="background: #1E88E5; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+                            Verify Email
+                        </a>
+                    </div>
+                    <p style="color: #999; text-align: center; font-size: 12px;">This link expires in 24 hours.</p>
+                </div>
+            `,
         });
+
+        res.status(201).json({
+            success: true,
+            message: 'Registration successful. Please check your email to verify your account.',
+            userId: savedUser._id.toString(),
+        });
+
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+publicRouter.get('/verify-email/:token', async (req, res) => {
+    try {
+        const user = await User.findOne({ 
+            verificationToken: req.params.token 
+        });
+
+        if (!user) {
+            return res.status(400).send(
+                <div style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                    <h2 style="color: red;">Invalid or expired verification link.</h2>
+                    <p>Please register again.</p>
+                </div>
+            );
+        }
+
+        user.isVerified = true;
+        user.verificationToken = null;
+        await user.save();
+
+        res.send(
+            <div style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                <h2 style="color: #1E88E5;">Email Verified Successfully!</h2>
+                <p>Your Quiz Royale account is now active.</p>
+                <p>You can now log in to the app.</p>
+            </div>
+        );
+
+    } catch (err) {
+        res.status(500).send('Something went wrong.');
     }
 });
 
@@ -119,6 +176,13 @@ publicRouter.post('/login', async (req, res) => {
         const passwordMatch = await bcrypt.compare(password, user.password);
         if (!user || !passwordMatch) {
             return res.status(401).json({ success: false, message: "Invalid credentials" });
+        }
+
+        if (!user.isVerified) {
+            return res.status(403).json({ 
+                success: false, 
+                message: "Please verify your email before logging in." 
+            });
         }
 
         if (user.isBanned) {
@@ -202,6 +266,7 @@ app.get('/admin/stats', requireApiKey, async (req, res) => {
         res.json({ totalQuestions, userStats: userCount, genreStats });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 
 app.get('/admin/analytics', requireApiKey, async (req, res) => {
     try {
@@ -293,6 +358,8 @@ publicRouter.post('/users/update-genres', async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+
 
 publicRouter.get('/questions/practice', async (req, res) => {
     try {
