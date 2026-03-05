@@ -142,10 +142,7 @@ publicRouter.get('/verify-email/:token', async (req, res) => {
 
         if (!user) {
             return res.status(400).send(
-                <div style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                    <h2 style="color: red;">Invalid or expired verification link.</h2>
-                    <p>Please register again.</p>
-                </div>
+                '<html><body style="font-family:Arial;text-align:center;padding:50px"><h2 style="color:red">Invalid or expired verification link.</h2><p>Please register again.</p></body></html>'
             );
         }
 
@@ -154,11 +151,7 @@ publicRouter.get('/verify-email/:token', async (req, res) => {
         await user.save();
 
         res.send(
-            <div style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                <h2 style="color: #1E88E5;">Email Verified Successfully!</h2>
-                <p>Your Quiz Royale account is now active.</p>
-                <p>You can now log in to the app.</p>
-            </div>
+            '<html><body style="font-family:Arial;text-align:center;padding:50px"><h2 style="color:#1E88E5">Email Verified Successfully!</h2><p>Your Quiz Royale account is now active.</p><p>You can now log in to the app.</p></body></html>'
         );
 
     } catch (err) {
