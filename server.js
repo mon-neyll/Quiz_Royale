@@ -62,7 +62,7 @@ const requireApiKey = (req, res, next) => {
     next();
 };
 
-// --- 3. Public User Routes (For Flutter Integration) ---
+// --- 3. Public User Routes (For Flutter Integrations) ---
 
 const publicRouter = express.Router();
 
