@@ -121,7 +121,7 @@ publicRouter.post('/register', async (req, res) => {
         // Send email in background
         const verifyUrl = `https://quiz-royale-ash0.onrender.com/api/verify-email/${verificationToken}`;
         resend.emails.send({
-            from: 'Quiz Royale onboarding@resend.dev',
+            from: 'Quiz Royale <onboarding@resend.dev>',
             to: email,
             subject: 'Verify your Quiz Royale account',
             html: `<html><body style="font-family:Arial;max-width:500px;margin:auto;padding:30px;background:#f5f5f5;border-radius:10px"><h2 style="color:#1E88E5;text-align:center">Welcome to Quiz Royale!</h2><p style="text-align:center">Hi <strong>${username}</strong>, please verify your email:</p><div style="text-align:center;margin:30px 0"><a href="${verifyUrl}" style="background:#1E88E5;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold">Verify Email</a></div><p style="color:#999;text-align:center;font-size:12px">This link expires in 24 hours.</p></body></html>`,
@@ -164,8 +164,11 @@ publicRouter.post('/login', async (req, res) => {
         console.log(`Attempting login for: [${username}] with password: [${password}]`);
         const user = await User.findOne({ username });
         
+        if (!user) {
+            return res.status(401).json({ success: false, message: "Invalid credentials" });
+}
         const passwordMatch = await bcrypt.compare(password, user.password);
-        if (!user || !passwordMatch) {
+        if (!passwordMatch) {
             return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 
@@ -692,7 +695,7 @@ app.post('/admin/upload-quiz', requireApiKey, async (req, res) => {
 app.get('/test-email', async (req, res) => {
     try {
         await resend.emails.send({
-            from: 'Quiz Royale onboarding@resend.dev',
+            from: 'Quiz Royale <onboarding@resend.dev>',
             to: process.env.EMAIL_USER,
             subject: 'Test email',
             html: '<p>Email is working!</p>',
