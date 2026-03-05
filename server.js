@@ -62,7 +62,7 @@ publicRouter.post('/register', async (req, res) => {
     try {
         const { username, password, email } = req.body;
 
-        const emailRegex = /^[^\s@]+@[^\s@]+.[^\s@]+$/;
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             return res.status(400).json({ 
                 success: false, 
@@ -117,7 +117,7 @@ publicRouter.post('/register', async (req, res) => {
 publicRouter.post('/login', async (req, res) => {
     try {
         const { username, password } = req.body;
-        console.log('Attempting login for: [${username}]');
+        console.log(`Attempting login for: [${username}]`);
 
         const user = await User.findOne({ username });
         if (!user) {

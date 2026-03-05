@@ -19,6 +19,44 @@ export const initSocket = (server) => {
     return code;
     };
 
+const applyMatchResult = async (io, player, isWinner, isDraw = false) => {
+    let pointChange = 0;
+    if (!isDraw) {
+        pointChange = isWinner
+            ? (player.level === 'noob' ? 20 : player.level === 'intermediate' ? 15 : 10)
+            : (player.level === 'noob' ? -5 : player.level === 'intermediate' ? -10 : -15);
+    }
+
+    let updated = await User.findByIdAndUpdate(player.userId, {
+        $inc: {
+            'stats.matchesPlayed': 1,
+            'stats.wins':   isWinner && !isDraw ? 1 : 0,
+            'stats.losses': !isWinner && !isDraw ? 1 : 0,
+            'stats.draws':  isDraw ? 1 : 0,
+            'stats.totalPoints': pointChange,
+        }
+    }, { new: true });
+
+    if (updated) {
+        let targetLevel = updated.level;
+        if (updated.stats.totalPoints >= 500 && updated.level === 'intermediate') targetLevel = 'pro';
+        else if (updated.stats.totalPoints >= 200 && updated.level === 'noob') targetLevel = 'intermediate';
+
+        if (targetLevel !== updated.level) {
+            updated = await User.findByIdAndUpdate(player.userId, { level: targetLevel }, { new: true });
+        }
+
+        io.to(player.socketId).emit('stats_update', {
+            points:        updated.stats.totalPoints,
+            tier:          updated.level,
+            matchesPlayed: updated.stats.matchesPlayed,
+            wins:          updated.stats.wins,
+            losses:        updated.stats.losses,
+            draws:         updated.stats.draws,
+        });
+    }
+};
+
     const SERVER_LEADERBOARD_LIMIT = 50;
 
     const broadcastLeaderboard = async (io) => {
@@ -128,12 +166,11 @@ export const initSocket = (server) => {
                 // Auto-expire after 60 seconds if friend never joins
                 setTimeout(() => {
                     if (challengeRooms[code]) {
-                        socket.emit('room_expired', {
-                            message: 'Room expired. No one joined in time.',
-                        });
+                        if (socket.connected) { // ← add this guard
+                            socket.emit('room_expired', { message: 'Room expired. No one joined in time.' });
+                        }
                         socket.leave(`challenge_${code}`);
                         delete challengeRooms[code];
-                        console.log(`Challenge room ${code} expired.`);
                     }
                 }, 60000);
 
@@ -322,14 +359,6 @@ export const initSocket = (server) => {
                     // Strict requirement: Players must be in the same level tier
                     if (p.level !== currentLevel) return false;
 
-                    const toVector = (selectedIndices) => {
-                    const vector = new Array(10).fill(0); // 10 is the total number of genres
-                    selectedIndices.forEach(idx => {
-                        if (idx >= 0 && idx < 10) vector[idx] = 1;
-                    });
-                    return vector;
-                    };
-
                     // Matchmaking based on Cosine Similarity (min threshold 0.65)
                     const vectorA = p.genrePreferences;
                     const vectorB = currentGenres;
@@ -463,29 +492,21 @@ export const initSocket = (server) => {
             if (!game) return;
 
             const winner = game.p1.userId === userId ? game.p2 : game.p1;
-            const loser = game.p1.userId === userId ? game.p1 : game.p2;
+            const loser  = game.p1.userId === userId ? game.p1 : game.p2;
 
             try {
-                await User.findByIdAndUpdate(winner.userId, {
-                    $inc: {
-                        'stats.matchesPlayed': 1,
-                        'stats.wins': 1,
-                        'stats.totalPoints': winner.level === 'noob' ? 20 : winner.level === 'intermediate' ? 15 : 10,
-                    }
-                }, { new: true });
+                await applyMatchResult(io, winner, true);
+                await applyMatchResult(io, loser, false);
 
-                await User.findByIdAndUpdate(loser.userId, {
-                    $inc: {
-                        'stats.matchesPlayed': 1,
-                        'stats.losses': 1,
-                        'stats.totalPoints': loser.level === 'noob' ? -5 : loser.level === 'intermediate' ? -10 : -15,
-                    }
-                }, { new: true });
-
-                io.to(winner.socketId).emit('opponent_forfeited', {
-                    message: 'Opponent forfeited. You win!',
+                io.to(winner.socketId).emit('opponent_forfeited', { message: 'Opponent forfeited. You win!' });
+                io.to(roomId).emit('game_over', {
+                    results: [
+                        { userId: winner.userId, name: winner.name, matchScore: 0, correct: 0, total: 5 },
+                        { userId: loser.userId,  name: loser.name,  matchScore: 0, correct: 0, total: 5 },
+                    ],
+                    winner: winner.userId,
+                    reason: 'forfeit',
                 });
-
                 delete activeGames[roomId];
                 await broadcastLeaderboard(io);
                 console.log(`User ${userId} forfeited room ${roomId}`);
@@ -534,73 +555,28 @@ export const initSocket = (server) => {
 
             const s1 = game.p1.finalMatchScore || 0;
             const s2 = game.p2.finalMatchScore || 0;
-            let winnerId = s1 > s2 ? game.p1.userId : (s2 > s1 ? game.p2.userId : null);
-            let isDraw = s1 === s2;
+            const winnerId = s1 > s2 ? game.p1.userId : (s2 > s1 ? game.p2.userId : null);
+            const isDraw = s1 === s2;
 
             try {
                 for (const p of [game.p1, game.p2]) {
-                    const isWinner = p.userId === winnerId;
-                    
-                    let statChange = 0;
-                    if (!isDraw) {
-                        if (isWinner) {
-                            if (p.level === "noob") statChange = 20;
-                            else if (p.level === "intermediate") statChange = 15;
-                            else if (p.level === "pro") statChange = 10;
-                        } else {
-                            if (p.level === "noob") statChange = -5;
-                            else if (p.level === "intermediate") statChange = -10;
-                            else if (p.level === "pro") statChange = -15;
-                        }
-                    }
-
-                    let updatedUser = await User.findByIdAndUpdate(p.userId, {
-                        $inc: {
-                            "stats.matchesPlayed": 1,
-                            "stats.wins": isWinner ? 1 : 0,
-                            "stats.losses": (!isWinner && !isDraw) ? 1 : 0,
-                            "stats.draws": isDraw ? 1 : 0,
-                            "stats.totalPoints": statChange,
-                        }
-                    }, { returnDocument: 'after' });
-                    
-                    if (updatedUser) {
-                        let targetLevel = updatedUser.level;
-                        if (updatedUser.stats.totalPoints >= 500 && updatedUser.level === "intermediate") {
-                            targetLevel = "pro";
-                        } else if (updatedUser.stats.totalPoints >= 200 && updatedUser.level === "noob") {
-                            targetLevel = "intermediate";
-                        }
-
-                        if (targetLevel !== updatedUser.level) {
-                            updatedUser = await User.findByIdAndUpdate(p.userId, { level: targetLevel }, { new: true });
-                        }
-
-                        io.to(p.socketId).emit('stats_update', {
-                            points: updatedUser.stats.totalPoints,
-                            tier: updatedUser.level,
-                            matchesPlayed: updatedUser.stats.matchesPlayed,
-                            wins: updatedUser.stats.wins,         
-                            losses: updatedUser.stats.losses,
-                            draws: updatedUser.stats.draws,//added
-                        });
-                    }
+                    await applyMatchResult(io, p, p.userId === winnerId, isDraw);
                 }
             } catch (err) { console.error("Finalizing error:", err); }
 
-            io.to(roomId).emit('game_over', { 
+            io.to(roomId).emit('game_over', {
                 results: [
-                        { userId: game.p1.userId, name: game.p1.name, matchScore: s1, correct: game.p1.scoreObj?.correct ?? 0, total: 5 }, 
-                        { userId: game.p2.userId, name: game.p2.name, matchScore: s2, correct: game.p2.scoreObj?.correct ?? 0, total: 5 }
-                    ],  
-                winner: winnerId 
+                    { userId: game.p1.userId, name: game.p1.name, matchScore: s1, correct: game.p1.scoreObj?.correct ?? 0, total: 5 },
+                    { userId: game.p2.userId, name: game.p2.name, matchScore: s2, correct: game.p2.scoreObj?.correct ?? 0, total: 5 }
+                ],
+                winner: winnerId
             });
             delete activeGames[roomId];
             await broadcastLeaderboard(io);
         };
 
 
-        socket.on('submit_score', ({ roomId, userId, score }) => {
+        socket.on('submit_score', async ({ roomId, userId, score }) => {
             const game = activeGames[roomId];
             if (!game) return;
 
@@ -609,54 +585,54 @@ export const initSocket = (server) => {
             p.finalMatchScore = (score.correct * 10) + (score.wrong * -5);
 
             if (game.p1.scoreObj !== null && game.p2.scoreObj !== null) {
-                finishGame(roomId);
+                await finishGame(roomId);  // ← await it
             }
         });
 
-        socket.on('disconnect', () => {
-            lobby = lobby.filter(p => p.socketId !== socket.id);
+        // socket.js — inside the 'disconnect' handler, add await and try/catch
 
-            for (const roomId in activeGames) {
-                const game = activeGames[roomId];
-                if (game.p1.socketId === socket.id || game.p2.socketId === socket.id) {
-                    const winner = game.p1.socketId === socket.id ? game.p2 : game.p1;
-                    const loser = game.p1.socketId === socket.id ? game.p1 : game.p2;
+socket.on('disconnect', () => {
+    lobby = lobby.filter(p => p.socketId !== socket.id);
 
-                    try {
-                        User.findByIdAndUpdate(winner.userId, {
-                            $inc: {
-                                'stats.matchesPlayed': 1,
-                                'stats.wins': 1,
-                                'stats.totalPoints': winner.level === 'noob' ? 20 : winner.level === 'intermediate' ? 15 : 10,
-                            }
-                        }, { new: true });
+    for (const roomId in activeGames) {
+        const game = activeGames[roomId];
+        if (game.p1.socketId === socket.id || game.p2.socketId === socket.id) {
+            const winner = game.p1.socketId === socket.id ? game.p2 : game.p1;
+            const loser  = game.p1.socketId === socket.id ? game.p1 : game.p2;
 
-                        User.findByIdAndUpdate(loser.userId, {
-                            $inc: {
-                                'stats.matchesPlayed': 1,
-                                'stats.losses': 1,
-                                'stats.totalPoints': loser.level === 'noob' ? -5 : loser.level === 'intermediate' ? -10 : -15,
-                            }
-                        }, { new: true });
-                    } catch (err) {
-                        console.error('Disconnect stat update error:', err);
-                    }
-
-                    io.to(winner.socketId).emit('opponent_left', {
-                        message: 'Opponent disconnected. You win!',
-                    });
-
-                    delete activeGames[roomId];
-                    break;
+            (async () => {
+                try {
+                    await applyMatchResult(io, winner, true);
+                    await applyMatchResult(io, loser, false);
+                } catch (err) {
+                    console.error('Disconnect stat update error:', err);
                 }
-            }
+            })();
 
-            for (const code in challengeRooms) {
-                if (challengeRooms[code].host.socketId === socket.id) {
-                    delete challengeRooms[code];
-                    console.log(`Challenge room ${code} removed (host disconnected).`);
-                }
-            }
-        });
+            io.to(winner.socketId).emit('opponent_left', {
+                message: 'Opponent disconnected. You win!',
+            });
+
+            io.to(winner.socketId).emit('game_over', {
+            results: [
+                { userId: winner.userId, name: winner.name, matchScore: 0, correct: 0, total: 5 },
+                { userId: loser.userId,  name: loser.name,  matchScore: 0, correct: 0, total: 5 },
+            ],
+            winner: winner.userId,
+            reason: 'opponent_disconnected',
+});
+
+            delete activeGames[roomId];
+            break;
+        }
+    }
+
+    for (const code in challengeRooms) {
+        if (challengeRooms[code].host.socketId === socket.id) {
+            delete challengeRooms[code];
+            console.log(`Challenge room ${code} removed (host disconnected).`);
+        }
+    }
+});
     });
 };
