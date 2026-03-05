@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import readline from 'readline';
 import http from 'http';
 import cors from 'cors'; 
+import bcrypt from 'bcrypt';
 import { createRequire } from 'module';
 import Question from './models/Question.js';
 import User from './models/User.js'; 
@@ -73,10 +74,11 @@ publicRouter.post('/register', async (req, res) => {
         //     stats: { matchesPlayed: 0, wins: 0, losses: 0, draws: 0, totalPoints: 0 }
         // });
         
+        const hashedPassword = await bcrypt.hash(password, 10);
         const newUser = new User({ 
         username, 
         email, 
-        password, 
+        password: hashedPassword, 
         level: 'noob',
         preferredGenres: new Array(10).fill(0),
         stats: { 
@@ -114,7 +116,8 @@ publicRouter.post('/login', async (req, res) => {
         console.log(`Attempting login for: [${username}] with password: [${password}]`);
         const user = await User.findOne({ username });
         
-        if (!user || user.password !== password) {
+        const passwordMatch = await bcrypt.compare(password, user.password);
+        if (!user || !passwordMatch) {
             return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 

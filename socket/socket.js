@@ -450,39 +450,83 @@ export const initSocket = (server) => {
             } catch (err) { console.error("Matchmaking error:", err); }
         });
 
+        //leave lobby event - in case a player wants to leave the lobby while waiting for an opponent
+        socket.on('leave_lobby', ({ userId }) => {
+        lobby = lobby.filter(p => p.userId !== userId);
+        console.log(`User ${userId} left the lobby.`);
+        });
+
+
+        // Forfeit event - if a player forfeits, the opponent wins and stats are updated accordingly
+        socket.on('forfeit', async ({ roomId, userId }) => {
+            const game = activeGames[roomId];
+            if (!game) return;
+
+            const winner = game.p1.userId === userId ? game.p2 : game.p1;
+            const loser = game.p1.userId === userId ? game.p1 : game.p2;
+
+            try {
+                await User.findByIdAndUpdate(winner.userId, {
+                    $inc: {
+                        'stats.matchesPlayed': 1,
+                        'stats.wins': 1,
+                        'stats.totalPoints': winner.level === 'noob' ? 20 : winner.level === 'intermediate' ? 15 : 10,
+                    }
+                }, { new: true });
+
+                await User.findByIdAndUpdate(loser.userId, {
+                    $inc: {
+                        'stats.matchesPlayed': 1,
+                        'stats.losses': 1,
+                        'stats.totalPoints': loser.level === 'noob' ? -5 : loser.level === 'intermediate' ? -10 : -15,
+                    }
+                }, { new: true });
+
+                io.to(winner.socketId).emit('opponent_forfeited', {
+                    message: 'Opponent forfeited. You win!',
+                });
+
+                delete activeGames[roomId];
+                await broadcastLeaderboard(io);
+                console.log(`User ${userId} forfeited room ${roomId}`);
+            } catch (err) {
+                console.error('Forfeit error:', err);
+            }
+        });
+
         // Event: Player submits their 5 chosen questions for the opponent
         socket.on('submit_selection', async ({ roomId, userId, selectedIds }) => {
-    const game = activeGames[roomId];
-    if (!game || game.duelStarted) return;
+            const game = activeGames[roomId];
+            if (!game || game.duelStarted) return;
 
-    const player = game.p1.userId === userId ? game.p1 : game.p2;
+            const player = game.p1.userId === userId ? game.p1 : game.p2;
 
-    // Normalize both sides to plain strings before comparing
-    const normalizedSelectedIds = selectedIds.map(id =>
-        typeof id === 'object' ? id.toString() : String(id)
-    );
+            // Normalize both sides to plain strings before comparing
+            const normalizedSelectedIds = selectedIds.map(id =>
+                typeof id === 'object' ? id.toString() : String(id)
+            );
 
-    player.selections = player.inventory
-        .filter(q => {
-            const qId = q._id?.$oid
-                     ?? q._id?.toString()
-                     ?? String(q._id);
-            return normalizedSelectedIds.includes(qId);
-        })
-        .slice(0, 5);
+            player.selections = player.inventory
+                .filter(q => {
+                    const qId = q._id?.$oid
+                            ?? q._id?.toString()
+                            ?? String(q._id);
+                    return normalizedSelectedIds.includes(qId);
+                })
+                .slice(0, 5);
 
-    // Fallback — if filter still returns 0, just take first 5
-    if (player.selections.length === 0) {
-        console.warn(`Selection filter returned 0 for ${userId}, using fallback`);
-        player.selections = player.inventory.slice(0, 5);
-    }
+            // Fallback — if filter still returns 0, just take first 5
+            if (player.selections.length === 0) {
+                console.warn(`Selection filter returned 0 for ${userId}, using fallback`);
+                player.selections = player.inventory.slice(0, 5);
+            }
 
-    console.log(`${userId} selections: ${player.selections.length}`);
+            console.log(`${userId} selections: ${player.selections.length}`);
 
-    if (game.p1.selections && game.p2.selections) {
-        await startDuel(roomId);
-    }
-});
+            if (game.p1.selections && game.p2.selections) {
+                await startDuel(roomId);
+            }
+        });
 
         const finishGame = async (roomId) => {
             const game = activeGames[roomId];
@@ -571,15 +615,42 @@ export const initSocket = (server) => {
 
         socket.on('disconnect', () => {
             lobby = lobby.filter(p => p.socketId !== socket.id);
+
             for (const roomId in activeGames) {
                 const game = activeGames[roomId];
                 if (game.p1.socketId === socket.id || game.p2.socketId === socket.id) {
-                    const oppId = game.p1.socketId === socket.id ? game.p2.socketId : game.p1.socketId;
-                    io.to(oppId).emit('opponent_left', { message: "Opponent disconnected." });
+                    const winner = game.p1.socketId === socket.id ? game.p2 : game.p1;
+                    const loser = game.p1.socketId === socket.id ? game.p1 : game.p2;
+
+                    try {
+                        User.findByIdAndUpdate(winner.userId, {
+                            $inc: {
+                                'stats.matchesPlayed': 1,
+                                'stats.wins': 1,
+                                'stats.totalPoints': winner.level === 'noob' ? 20 : winner.level === 'intermediate' ? 15 : 10,
+                            }
+                        }, { new: true });
+
+                        User.findByIdAndUpdate(loser.userId, {
+                            $inc: {
+                                'stats.matchesPlayed': 1,
+                                'stats.losses': 1,
+                                'stats.totalPoints': loser.level === 'noob' ? -5 : loser.level === 'intermediate' ? -10 : -15,
+                            }
+                        }, { new: true });
+                    } catch (err) {
+                        console.error('Disconnect stat update error:', err);
+                    }
+
+                    io.to(winner.socketId).emit('opponent_left', {
+                        message: 'Opponent disconnected. You win!',
+                    });
+
                     delete activeGames[roomId];
                     break;
                 }
             }
+
             for (const code in challengeRooms) {
                 if (challengeRooms[code].host.socketId === socket.id) {
                     delete challengeRooms[code];
