@@ -7,19 +7,14 @@ import readline from 'readline';
 import http from 'http';
 import cors from 'cors'; 
 import bcrypt from 'bcrypt';
-import {Resend} from 'resend';
-import crypto from 'crypto';
 import { createRequire } from 'module';
 import Question from './models/Question.js';
 import User from './models/User.js'; 
 import { initSocket } from './socket/socket.js';
 import path from 'path';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
-
 const app = express();
 const server = http.createServer(app);
 
@@ -27,7 +22,7 @@ const server = http.createServer(app);
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'x-api-key', 'Authorization']
+    allowedHeaders: ['Content-Type', 'x-api-key']
 }));
 
 app.use(express.json());
@@ -66,32 +61,22 @@ const publicRouter = express.Router();
 publicRouter.post('/register', async (req, res) => {
     try {
         const { username, password, email } = req.body;
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        const emailRegex = /^[^\s@]+@[^\s@]+.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             return res.status(400).json({ 
                 success: false, 
                 message: "Please enter a valid email address." 
             });
         }
-        
-        // Check existing verified users only
-        const existing = await User.findOne({ 
-            $or: [{ username }, { email }],
-            isVerified: true  // ← only block if verified user exists
-        });
+
+        const existing = await User.findOne({ $or: [{ username }, { email }] });
         if (existing) return res.status(400).json({ 
             success: false, 
             message: "Username or email already exists" 
         });
 
-        // Remove any previous unverified attempts with same username/email
-        await User.deleteMany({ 
-            $or: [{ username }, { email }],
-            isVerified: false 
-        });
-
         const hashedPassword = await bcrypt.hash(password, 10);
-        const verificationToken = crypto.randomBytes(32).toString('hex');
 
         const newUser = new User({
             username,
@@ -99,8 +84,6 @@ publicRouter.post('/register', async (req, res) => {
             password: hashedPassword,
             level: 'noob',
             preferredGenres: new Array(10).fill(0),
-            isVerified: false,
-            verificationToken,
             stats: {
                 matchesPlayed: 0,
                 wins: 0,
@@ -114,49 +97,19 @@ publicRouter.post('/register', async (req, res) => {
 
         res.status(201).json({
             success: true,
-            message: 'Registration successful. Please check your email to verify your account.',
-            userId: savedUser._id.toString(),
+            message: 'Registration successful.',
+            user: {
+                _id: savedUser._id.toString(),
+                name: savedUser.username,
+                email: savedUser.email,
+                level: savedUser.level,
+                genres: savedUser.preferredGenres || [],
+                stats: savedUser.stats
+            }
         });
-
-        // Send email in background
-        const verifyUrl = `https://quiz-royale-ash0.onrender.com/api/verify-email/${verificationToken}`;
-        resend.emails.send({
-            from: 'Quiz Royale <onboarding@resend.dev>',
-            to: email,
-            subject: 'Verify your Quiz Royale account',
-            html: `<html><body style="font-family:Arial;max-width:500px;margin:auto;padding:30px;background:#f5f5f5;border-radius:10px"><h2 style="color:#1E88E5;text-align:center">Welcome to Quiz Royale!</h2><p style="text-align:center">Hi <strong>${username}</strong>, please verify your email:</p><div style="text-align:center;margin:30px 0"><a href="${verifyUrl}" style="background:#1E88E5;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold">Verify Email</a></div><p style="color:#999;text-align:center;font-size:12px">This link expires in 24 hours.</p></body></html>`,
-        }).catch(err => {
-    console.error("EMAIL ERROR:", err);
-    console.error("DETAILS:", err.response?.data);
-});
 
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
-    }
-});
-
-publicRouter.get('/verify-email/:token', async (req, res) => {
-    try {
-        const user = await User.findOne({ 
-            verificationToken: req.params.token 
-        });
-
-        if (!user) {
-            return res.status(400).send(
-                '<html><body style="font-family:Arial;text-align:center;padding:50px"><h2 style="color:red">Invalid or expired verification link.</h2><p>Please register again.</p></body></html>'
-            );
-        }
-
-        user.isVerified = true;
-        user.verificationToken = null;
-        await user.save();
-
-        res.send(
-            '<html><body style="font-family:Arial;text-align:center;padding:50px"><h2 style="color:#1E88E5">Email Verified Successfully!</h2><p>Your Quiz Royale account is now active.</p><p>You can now log in to the app.</p></body></html>'
-        );
-
-    } catch (err) {
-        res.status(500).send('Something went wrong.');
     }
 });
 
@@ -164,22 +117,16 @@ publicRouter.get('/verify-email/:token', async (req, res) => {
 publicRouter.post('/login', async (req, res) => {
     try {
         const { username, password } = req.body;
-        console.log(`Attempting login for: [${username}] with password: [${password}]`);
+        console.log('Attempting login for: [${username}]');
+
         const user = await User.findOne({ username });
-        
         if (!user) {
-            return res.status(401).json({ success: false, message: "Invalid credentials" });
-}
-        const passwordMatch = await bcrypt.compare(password, user.password);
-        if (!passwordMatch) {
             return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 
-        if (!user.isVerified) {
-            return res.status(403).json({ 
-                success: false, 
-                message: "Please verify your email before logging in." 
-            });
+        const passwordMatch = await bcrypt.compare(password, user.password);
+        if (!passwordMatch) {
+            return res.status(401).json({ success: false, message: "Invalid credentials" });
         }
 
         if (user.isBanned) {
@@ -273,47 +220,6 @@ app.get('/admin/analytics', requireApiKey, async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- MISSING ROUTE: Update User Genres ---
-// publicRouter.post('/users/update-genres', async (req, res) => {
-//     try {
-//         const { userId, preferredGenres } = req.body;
-
-//         if (!userId || !Array.isArray(preferredGenres)) {
-//             return res.status(400).json({ 
-//                 success: false, 
-//                 message: "Invalid data format" 
-//             });
-//         }
-
-//         // Find user and update their genres
-//         const updatedUser = await User.findByIdAndUpdate(
-//             userId,
-//             { preferredGenres: preferredGenres },
-//             { new: true } // This returns the user AFTER the update
-//         );
-
-//         if (!updatedUser) {
-//             return res.status(404).json({ success: false, message: "User not found" });
-//         }
-
-//         // Return the object in the format Flutter expects
-//         res.status(200).json({
-//             success: true,
-//             user: {
-//                 _id: updatedUser._id.toString(),
-//                 name: updatedUser.username,
-//                 email: updatedUser.email,
-//                 level: updatedUser.level,
-//                 genres: updatedUser.preferredGenres || [],
-//                 stats: updatedUser.stats
-//             }
-//         });
-//     } catch (err) {
-//         console.error("Genre Update Error:", err);
-//         res.status(500).json({ success: false, message: err.message });
-//     }
-// });
-// --- server.js (Updated Route) ---
 publicRouter.post('/users/update-genres', async (req, res) => {
   try {
     const { userId, preferredGenres } = req.body;
@@ -692,20 +598,6 @@ app.post('/admin/upload-quiz', requireApiKey, async (req, res) => {
     } catch (err) {
         console.error('❌ Fatal Error:', err);
         if (!res.headersSent) res.status(500).json({ error: err.message });
-    }
-});
-
-app.get('/test-email', async (req, res) => {
-    try {
-        await resend.emails.send({
-            from: 'Quiz Royale <onboarding@resend.dev>',
-            to: process.env.EMAIL_USER,
-            subject: 'Test email',
-            html: '<p>Email is working!</p>',
-        });
-        res.json({ success: true, message: 'Email sent!' });
-    } catch (err) {
-        res.json({ success: false, error: err.message });
     }
 });
 
