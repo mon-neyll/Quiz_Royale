@@ -499,14 +499,6 @@ const applyMatchResult = async (io, player, isWinner, isDraw = false) => {
                 await applyMatchResult(io, loser, false);
 
                 io.to(winner.socketId).emit('opponent_forfeited', { message: 'Opponent forfeited. You win!' });
-                io.to(roomId).emit('game_over', {
-                    results: [
-                        { userId: winner.userId, name: winner.name, matchScore: 0, correct: 0, total: 5 },
-                        { userId: loser.userId,  name: loser.name,  matchScore: 0, correct: 0, total: 5 },
-                    ],
-                    winner: winner.userId,
-                    reason: 'forfeit',
-                });
                 delete activeGames[roomId];
                 await broadcastLeaderboard(io);
                 console.log(`User ${userId} forfeited room ${roomId}`);
@@ -612,16 +604,6 @@ socket.on('disconnect', () => {
             io.to(winner.socketId).emit('opponent_left', {
                 message: 'Opponent disconnected. You win!',
             });
-
-            io.to(winner.socketId).emit('game_over', {
-            results: [
-                { userId: winner.userId, name: winner.name, matchScore: 0, correct: 0, total: 5 },
-                { userId: loser.userId,  name: loser.name,  matchScore: 0, correct: 0, total: 5 },
-            ],
-            winner: winner.userId,
-            reason: 'opponent_disconnected',
-});
-
             delete activeGames[roomId];
             break;
         }
