@@ -109,7 +109,7 @@ publicRouter.post('/register', async (req, res) => {
     }
 });
 
-// Handle User Login
+// Handle User Logins
 publicRouter.post('/login', async (req, res) => {
     try {
         const { username, password } = req.body;

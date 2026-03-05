@@ -59,7 +59,7 @@ export const initSocket = (server) => {
         try {
             // Client sends a limit; cap it at SERVER_LEADERBOARD_LIMIT so clients
             // can never request more than you allow. Falls back to the server limit
-            // if client sends nothing.
+            // if client sends nothings.
             const requestedLimit = data?.limit ?? SERVER_LEADERBOARD_LIMIT;
             const limit = Math.min(requestedLimit, SERVER_LEADERBOARD_LIMIT);
 
