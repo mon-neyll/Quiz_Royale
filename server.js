@@ -72,10 +72,21 @@ const publicRouter = express.Router();
 publicRouter.post('/register', async (req, res) => {
     try {
         const { username, password, email } = req.body;
-        const existing = await User.findOne({ $or: [{ username }, { email }] });
+        
+        // Check existing verified users only
+        const existing = await User.findOne({ 
+            $or: [{ username }, { email }],
+            isVerified: true  // ← only block if verified user exists
+        });
         if (existing) return res.status(400).json({ 
             success: false, 
             message: "Username or email already exists" 
+        });
+
+        // Remove any previous unverified attempts with same username/email
+        await User.deleteMany({ 
+            $or: [{ username }, { email }],
+            isVerified: false 
         });
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -100,34 +111,20 @@ publicRouter.post('/register', async (req, res) => {
 
         const savedUser = await newUser.save();
 
-        // Send verification email
-        const verifyUrl = `https://quiz-royale-ash0.onrender.com/api/verify-email/${verificationToken}`;
-
-        await transporter.sendMail({
-            from: `"Quiz Royale" <${process.env.EMAIL_USER}>`,
-            to: email,
-            subject: 'Verify your Quiz Royale account',
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 30px; border-radius: 10px; background: #f5f5f5;">
-                    <h2 style="color: #1E88E5; text-align: center;">Welcome to Quiz Royale!</h2>
-                    <p style="color: #333; text-align: center;">Hi <strong>${username}</strong>, thanks for registering.</p>
-                    <p style="color: #333; text-align: center;">Please verify your email to activate your account:</p>
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="${verifyUrl}" 
-                           style="background: #1E88E5; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
-                            Verify Email
-                        </a>
-                    </div>
-                    <p style="color: #999; text-align: center; font-size: 12px;">This link expires in 24 hours.</p>
-                </div>
-            `,
-        });
-
         res.status(201).json({
             success: true,
             message: 'Registration successful. Please check your email to verify your account.',
             userId: savedUser._id.toString(),
         });
+
+        // Send email in background
+        const verifyUrl = `https://quiz-royale-ash0.onrender.com/api/verify-email/${verificationToken}`;
+        transporter.sendMail({
+            from: `"Quiz Royale" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: 'Verify your Quiz Royale account',
+            html: `<html><body style="font-family:Arial;max-width:500px;margin:auto;padding:30px;background:#f5f5f5;border-radius:10px"><h2 style="color:#1E88E5;text-align:center">Welcome to Quiz Royale!</h2><p style="text-align:center">Hi <strong>${username}</strong>, please verify your email:</p><div style="text-align:center;margin:30px 0"><a href="${verifyUrl}" style="background:#1E88E5;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold">Verify Email</a></div><p style="color:#999;text-align:center;font-size:12px">This link expires in 24 hours.</p></body></html>`,
+        }).catch(err => console.error('Email send error:', err));
 
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
