@@ -7,7 +7,7 @@ import readline from 'readline';
 import http from 'http';
 import cors from 'cors'; 
 import bcrypt from 'bcrypt';
-import nodemailer from 'nodemailer';
+import {Resend} from 'resend';
 import crypto from 'crypto';
 import { createRequire } from 'module';
 import Question from './models/Question.js';
@@ -15,15 +15,7 @@ import User from './models/User.js';
 import { initSocket } from './socket/socket.js';
 import path from 'path';
 
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // true for 465, false for 587
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-    },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
@@ -128,8 +120,8 @@ publicRouter.post('/register', async (req, res) => {
 
         // Send email in background
         const verifyUrl = `https://quiz-royale-ash0.onrender.com/api/verify-email/${verificationToken}`;
-        transporter.sendMail({
-            from: `"Quiz Royale" <${process.env.EMAIL_USER}>`,
+        resend.emails.send({
+            from: 'Quiz Royale onboarding@resend.dev',
             to: email,
             subject: 'Verify your Quiz Royale account',
             html: `<html><body style="font-family:Arial;max-width:500px;margin:auto;padding:30px;background:#f5f5f5;border-radius:10px"><h2 style="color:#1E88E5;text-align:center">Welcome to Quiz Royale!</h2><p style="text-align:center">Hi <strong>${username}</strong>, please verify your email:</p><div style="text-align:center;margin:30px 0"><a href="${verifyUrl}" style="background:#1E88E5;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold">Verify Email</a></div><p style="color:#999;text-align:center;font-size:12px">This link expires in 24 hours.</p></body></html>`,
@@ -696,6 +688,21 @@ app.post('/admin/upload-quiz', requireApiKey, async (req, res) => {
         if (!res.headersSent) res.status(500).json({ error: err.message });
     }
 });
+
+app.get('/test-email', async (req, res) => {
+    try {
+        await resend.emails.send({
+            from: 'Quiz Royale onboarding@resend.dev',
+            to: process.env.EMAIL_USER,
+            subject: 'Test email',
+            html: '<p>Email is working!</p>',
+        });
+        res.json({ success: true, message: 'Email sent!' });
+    } catch (err) {
+        res.json({ success: false, error: err.message });
+    }
+});
+
 app.get('/admin-panel', (req, res) => {
     res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });

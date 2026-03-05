@@ -22,6 +22,7 @@
     "nodemailer": "^8.0.1",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
+    "resend": "^6.9.3",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3"
   },
