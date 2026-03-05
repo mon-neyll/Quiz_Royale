@@ -27,8 +27,8 @@ const server = http.createServer(app);
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'x-api-key']
-})); 
+    allowedHeaders: ['Content-Type', 'x-api-key', 'Authorization']
+}));
 
 app.use(express.json());
 app.use(fileUpload());
@@ -66,7 +66,7 @@ const publicRouter = express.Router();
 publicRouter.post('/register', async (req, res) => {
     try {
         const { username, password, email } = req.body;
-        const emailRegex = /^[^\s@]+@[^\s@]+.[^\s@]+$/;
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             return res.status(400).json({ 
                 success: false, 
@@ -125,7 +125,10 @@ publicRouter.post('/register', async (req, res) => {
             to: email,
             subject: 'Verify your Quiz Royale account',
             html: `<html><body style="font-family:Arial;max-width:500px;margin:auto;padding:30px;background:#f5f5f5;border-radius:10px"><h2 style="color:#1E88E5;text-align:center">Welcome to Quiz Royale!</h2><p style="text-align:center">Hi <strong>${username}</strong>, please verify your email:</p><div style="text-align:center;margin:30px 0"><a href="${verifyUrl}" style="background:#1E88E5;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold">Verify Email</a></div><p style="color:#999;text-align:center;font-size:12px">This link expires in 24 hours.</p></body></html>`,
-        }).catch(err => console.error('Email send error:', err));
+        }).catch(err => {
+    console.error("EMAIL ERROR:", err);
+    console.error("DETAILS:", err.response?.data);
+});
 
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
