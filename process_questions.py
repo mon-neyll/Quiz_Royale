@@ -6,12 +6,19 @@ import os
 import math
 from transformers import BertTokenizer, BertForSequenceClassification
 from sklearn.metrics.pairwise import cosine_similarity
+from huggingface_hub import login
 
 # Ensure UTF-8 for smooth communication with Node.js
 sys.stdout.reconfigure(encoding='utf-8')
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.getenv('MODEL_PATH', os.path.join(BASE_DIR, '..', 'quiz-royale-ml', 'model'))
+# Login to Hugging Face (needed for private repos)
+HF_TOKEN = os.getenv('HF_TOKEN')
+if HF_TOKEN:
+    login(token=HF_TOKEN)
+
+# Point to your HuggingFace model instead of local path
+MODEL_PATH = os.getenv('MODEL_PATH', 'moneyll/quiz-royale-bert')
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 try:

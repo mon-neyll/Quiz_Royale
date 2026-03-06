@@ -1,0 +1,5 @@
+torch
+transformers
+scikit-learn
+numpy
+huggingface_hub
