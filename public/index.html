@@ -378,21 +378,67 @@
         function clearFile() { document.getElementById('fileIn').value = ""; document.getElementById('fileName').innerText = "CLICK TO SELECT SOURCE PDF"; }
         
         async function doUpload() {
-            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
-            const file = document.getElementById('fileIn').files[0];
-            if(!file || !key) return alert("Missing Key/File.");
-            abortController = new AbortController();
-            const overlay = document.getElementById('loadingOverlay');
-            overlay.style.display = 'flex';
-            const fd = new FormData(); fd.append('quizPdf', file);
-            try {
-                const res = await fetch(`${API}/admin/upload-quiz`, { method: 'POST', headers: {'x-api-key': key}, body: fd, signal: abortController.signal });
-                if(res.ok) { 
-                    document.getElementById('pBar').style.width = '100%'; 
-                    setTimeout(() => { overlay.style.display = 'none'; refreshData(); }, 1000); 
-                }
-            } catch (e) { overlay.style.display = 'none'; }
+    const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+    const file = document.getElementById('fileIn').files[0];
+    if(!file || !key) return alert("Missing Key/File.");
+    
+    abortController = new AbortController();
+    const overlay = document.getElementById('loadingOverlay');
+    overlay.style.display = 'flex';
+    
+    // Animate progress bar while waiting
+    let fakeProgress = 0;
+    const progressInterval = setInterval(() => {
+        if(fakeProgress < 90) {
+            fakeProgress += Math.random() * 2;
+            document.getElementById('pBar').style.width = fakeProgress + '%';
+            document.getElementById('pPercent').innerText = Math.floor(fakeProgress) + '%';
         }
+    }, 1000);
+
+    const fd = new FormData(); 
+    fd.append('quizPdf', file);
+    
+    try {
+        const res = await fetch(`${API}/admin/upload-quiz`, { 
+            method: 'POST', 
+            headers: {'x-api-key': key}, 
+            body: fd, 
+            signal: abortController.signal 
+        });
+        
+        clearInterval(progressInterval);
+        
+        if(res.ok) { 
+            const data = await res.json();
+            document.getElementById('pBar').style.width = '100%';
+            document.getElementById('pPercent').innerText = '100%';
+            
+            // Show success badge
+            const badge = document.getElementById('statusBadge');
+            badge.classList.remove('hidden');
+            badge.className = 'mt-4 px-6 py-2 rounded-full font-black text-[10px] uppercase mx-auto w-fit bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+            badge.innerText = `✅ ${data.count} Questions Saved Successfully`;
+            
+            setTimeout(() => { 
+                overlay.style.display = 'none';
+                badge.classList.add('hidden');
+                document.getElementById('pBar').style.width = '0%';
+                document.getElementById('pPercent').innerText = '0%';
+                refreshData(); 
+            }, 3000); 
+        } else {
+            const err = await res.json();
+            clearInterval(progressInterval);
+            overlay.style.display = 'none';
+            alert('Error: ' + (err.error || 'Upload failed'));
+        }
+    } catch (e) { 
+        clearInterval(progressInterval);
+        overlay.style.display = 'none'; 
+        if(e.name !== 'AbortError') alert('Upload failed: ' + e.message);
+    }
+}
 
         function stopClassification() { if (abortController) abortController.abort(); document.getElementById('loadingOverlay').style.display = 'none'; }
     </script>
