@@ -185,17 +185,57 @@ app.use('/api', publicRouter);
 
 // --- 4. Helper: PDF Parser Logic ---
 const parseQuizPdf = (text) => {
-    const regex = /(\d+)[\.\)]\s*(.+?)\s*[aA][\.\)]\s*(.+?)\s*[bB][\.\)]\s*(.+?)\s*[cC][\.\)]\s*(.+?)\s*[dD][\.\)]\s*(.+?)\s*Answer:\s*([a-dA-D])[\.\)]?/gs;
-    const answerMap = { a: 0, b: 1, c: 2, d: 3, A: 0, B: 1, C: 2, D: 3 };
     const questions = [];
-    let matches;
-    while ((matches = regex.exec(text)) !== null) {
+
+    // Normalize text
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+    // Universal regex - handles:
+    // 1. or 1) or Q1. or Q1) or Q.1
+    // a. or a) or A. or A) or (a) or (A)
+    // Answer: x or Ans: x or Correct Answer: x or ANSWER: x
+    const regex = /(?:Q\.?\s*)?(\d+)[.)]\s*(.+?)\s*(?:\(a\)|a[.)]\s*|A[.)]\s*)(.+?)\s*(?:\(b\)|b[.)]\s*|B[.)]\s*)(.+?)\s*(?:\(c\)|c[.)]\s*|C[.)]\s*)(.+?)\s*(?:\(d\)|d[.)]\s*|D[.)]\s*)(.+?)\s*(?:Answer|Ans|ANSWER|Correct Answer|correct answer)\s*:\s*(.+?)(?=(?:Q\.?\s*)?\d+[.)]|$)/gs;
+
+    let match;
+    while ((match = regex.exec(normalized)) !== null) {
+        const options = [
+            match[3].trim(),
+            match[4].trim(),
+            match[5].trim(),
+            match[6].trim()
+        ];
+
+        const answerRaw = match[7].trim().toLowerCase();
+
+        // Try to find correct answer index
+        let correctAnswer = 0;
+
+        // Case 1: Answer is a letter (a, b, c, d)
+        const letterMap = { a: 0, b: 1, c: 2, d: 3 };
+        if (letterMap[answerRaw] !== undefined) {
+            correctAnswer = letterMap[answerRaw];
+        }
+        // Case 2: Answer is a number (1, 2, 3, 4)
+        else if (['1','2','3','4'].includes(answerRaw)) {
+            correctAnswer = parseInt(answerRaw) - 1;
+        }
+        // Case 3: Answer is the full option text
+        else {
+            const idx = options.findIndex(opt =>
+                opt.toLowerCase() === answerRaw ||
+                opt.toLowerCase().includes(answerRaw) ||
+                answerRaw.includes(opt.toLowerCase())
+            );
+            correctAnswer = idx !== -1 ? idx : 0;
+        }
+
         questions.push({
-            questionText: matches[2].trim(),
-            options: [matches[3].trim(), matches[4].trim(), matches[5].trim(), matches[6].trim()],
-            correctAnswer: answerMap[matches[7]]
+            questionText: match[2].trim(),
+            options,
+            correctAnswer
         });
     }
+
     return questions;
 };
 
@@ -538,7 +578,7 @@ app.post('/admin/upload-quiz', requireApiKey, async (req, res) => {
 
         const pythonProcess = spawn(pythonPath, ['-u', scriptPath], {
             cwd: process.cwd(),
-            env: { ...process.env, TRANSFORMERS_OFFLINE: '1', PYTHONIOENCODING: 'utf-8' } // Forced UTF-8
+            env: { ...process.env, TRANSFORMERS_OFFLINE: '0', PYTHONIOENCODING: 'utf-8' } // Forced UTF-8
         });
 
         const rl = readline.createInterface({ input: pythonProcess.stdout, terminal: false });
