@@ -495,9 +495,9 @@ const applyMatchResult = async (io, player, isWinner, isDraw = false) => {
             const isDraw = s1 === s2;
 
             try {
-                for (const p of [game.p1, game.p2]) {
-                    await applyMatchResult(io, p, p.userId === winnerId, isDraw);
-                }
+                await Promise.all([game.p1, game.p2].map(p =>
+                    applyMatchResult(io, p, p.userId === winnerId, isDraw)
+                ));
             } catch (err) { console.error("Finalizing error:", err); }
 
             io.to(roomId).emit('game_over', {
@@ -521,23 +521,24 @@ const applyMatchResult = async (io, player, isWinner, isDraw = false) => {
     const winner = game.p1.userId === userId ? game.p2 : game.p1;
     const loser  = game.p1.userId === userId ? game.p1 : game.p2;
 
-    try {
-        // Set loser's score to whatever they had, winner keeps theirs too
-        if (!loser.scoreObj) {
-            loser.scoreObj = { correct: 0, wrong: 0 };
-            loser.finalMatchScore = 0;
-        }
-        // If winner hasn't submitted yet either, default to 0
-        if (!winner.scoreObj) {
-            winner.scoreObj = { correct: 0, wrong: 0 };
-            winner.finalMatchScore = 0;
-        }
+    if (!loser.scoreObj) {
+        loser.scoreObj = { correct: 0, wrong: 0 };
+        loser.finalMatchScore = 0;
+    }
 
-        io.to(winner.socketId).emit('opponent_forfeited', { message: 'Opponent forfeited.' });
-        await finishGame(roomId);  // handles stats, game_over, leaderboard
-        console.log(`User ${userId} forfeited room ${roomId}`);
-    } catch (err) {
-        console.error('Forfeit error:', err);
+    // Force finish if remaining player never submits
+    setTimeout(() => {
+        if (activeGames[roomId]) {
+            finishGame(roomId);
+        }
+    }, 120000);
+
+    io.to(winner.socketId).emit('opponent_forfeited', { 
+        message: 'Opponent forfeited. Finish your questions to see the results.' 
+    });
+
+    if (winner.scoreObj !== null) {
+        await finishGame(roomId);
     }
 });
 
@@ -577,17 +578,17 @@ const applyMatchResult = async (io, player, isWinner, isDraw = false) => {
 
 
         socket.on('submit_score', async ({ roomId, userId, score }) => {
-            const game = activeGames[roomId];
-            if (!game || game.forfeited) return;
+    const game = activeGames[roomId];
+    if (!game) return;
 
-            const p = game.p1.userId === userId ? game.p1 : game.p2;
-            p.scoreObj = score;
-            p.finalMatchScore = (score.correct * 10) + (score.wrong * -5);
+    const p = game.p1.userId === userId ? game.p1 : game.p2;
+    p.scoreObj = score;
+    p.finalMatchScore = (score.correct * 10) + (score.wrong * -5);
 
-            if (game.p1.scoreObj !== null && game.p2.scoreObj !== null) {
-                await finishGame(roomId);  // ← await it
-            }
-        });
+    if (game.p1.scoreObj !== null && game.p2.scoreObj !== null) {
+        await finishGame(roomId);
+    }
+});
 
         // socket.js — inside the 'disconnect' handler, add await and try/catch
 
@@ -597,30 +598,38 @@ socket.on('disconnect', () => {
     for (const roomId in activeGames) {
         const game = activeGames[roomId];
         if (game.p1.socketId === socket.id || game.p2.socketId === socket.id) {
+            if (game.forfeited) break;
+
+            game.forfeited = true;
+
             const winner = game.p1.socketId === socket.id ? game.p2 : game.p1;
             const loser  = game.p1.socketId === socket.id ? game.p1 : game.p2;
 
-            // Default missing scores to 0
             if (!loser.scoreObj) {
                 loser.scoreObj = { correct: 0, wrong: 0 };
                 loser.finalMatchScore = 0;
             }
-            if (!winner.scoreObj) {
-                winner.scoreObj = { correct: 0, wrong: 0 };
-                winner.finalMatchScore = 0;
-            }
+
+            // Force finish if remaining player never submits
+            setTimeout(() => {
+                if (activeGames[roomId]) {
+                    finishGame(roomId);
+                }
+            }, 120000);
 
             io.to(winner.socketId).emit('opponent_left', {
-                message: 'Opponent disconnected. You win!',
+                message: 'Opponent disconnected. Finish your questions to see the results.',
             });
 
-            (async () => {
-                try {
-                    await finishGame(roomId);  // handles everything
-                } catch (err) {
-                    console.error('Disconnect finishGame error:', err);
-                }
-            })();
+            if (winner.scoreObj !== null) {
+                (async () => {
+                    try {
+                        await finishGame(roomId);
+                    } catch (err) {
+                        console.error('Disconnect finishGame error:', err);
+                    }
+                })();
+            }
 
             break;
         }
