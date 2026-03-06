@@ -13,6 +13,10 @@
         #loadingOverlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.95); z-index: 3000; flex-direction: column; align-items: center; justify-content: center; }
         .spinner { width: 50px; height: 50px; border: 4px solid #1e293b; border-top: 4px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes popIn {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+}
         .progress-box { width: 300px; background: #1e293b; border-radius: 50px; height: 8px; overflow: hidden; border: 1px solid #334151; margin: 15px 0; }
         .progress-fill { height: 100%; background: #3b82f6; width: 0%; transition: width 0.3s; }
         .q-row-selected { background: rgba(59, 130, 246, 0.1) !important; }
@@ -72,7 +76,7 @@
     <div id="loadingOverlay">
         <div class="spinner"></div>
         <div class="text-center mt-6">
-            <h2 class="text-xl font-black uppercase tracking-widest">AI Ingestion</h2>
+            <h2 class="text-xl font-black uppercase tracking-widest" id="loadingStatus">Parsing PDF...</h2>
             <div class="progress-box"><div id="pBar" class="progress-fill"></div></div>
             <p id="pPercent" class="font-mono text-blue-400 font-bold">0%</p>
             <div id="statusBadge" class="hidden mt-4 px-6 py-2 rounded-full font-black text-[10px] uppercase mx-auto w-fit"></div>
@@ -386,7 +390,6 @@
     const overlay = document.getElementById('loadingOverlay');
     overlay.style.display = 'flex';
     
-    // Animate progress bar while waiting
     let fakeProgress = 0;
     const progressInterval = setInterval(() => {
         if(fakeProgress < 90) {
@@ -398,6 +401,8 @@
 
     const fd = new FormData(); 
     fd.append('quizPdf', file);
+    document.getElementById('loadingStatus').innerText = 'AI Classifying...';
+
     
     try {
         const res = await fetch(`${API}/admin/upload-quiz`, { 
@@ -408,36 +413,73 @@
         });
         
         clearInterval(progressInterval);
+        overlay.style.display = 'none';
         
         if(res.ok) { 
             const data = await res.json();
-            document.getElementById('pBar').style.width = '100%';
-            document.getElementById('pPercent').innerText = '100%';
-            
-            // Show success badge
-            const badge = document.getElementById('statusBadge');
-            badge.classList.remove('hidden');
-            badge.className = 'mt-4 px-6 py-2 rounded-full font-black text-[10px] uppercase mx-auto w-fit bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
-            badge.innerText = `✅ ${data.count} Questions Saved Successfully`;
-            
-            setTimeout(() => { 
-                overlay.style.display = 'none';
-                badge.classList.add('hidden');
-                document.getElementById('pBar').style.width = '0%';
-                document.getElementById('pPercent').innerText = '0%';
-                refreshData(); 
-            }, 3000); 
+            showSuccessPopup(data.count);
+            clearFile();
+            refreshData(); 
         } else {
             const err = await res.json();
-            clearInterval(progressInterval);
-            overlay.style.display = 'none';
-            alert('Error: ' + (err.error || 'Upload failed'));
+            showErrorPopup(err.error || 'Upload failed');
         }
     } catch (e) { 
         clearInterval(progressInterval);
         overlay.style.display = 'none'; 
-        if(e.name !== 'AbortError') alert('Upload failed: ' + e.message);
+        if(e.name !== 'AbortError') showErrorPopup(e.message);
     }
+}
+
+function showSuccessPopup(count) {
+    const popup = document.createElement('div');
+    popup.style.cssText = `
+        position: fixed; inset: 0; z-index: 9999;
+        background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);
+        display: flex; align-items: center; justify-content: center;
+    `;
+    popup.innerHTML = `
+        <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; padding: 48px; text-align: center; max-width: 400px; animation: popIn 0.3s ease;">
+            <div style="font-size: 64px; margin-bottom: 16px;">🎉</div>
+            <h2 style="font-size: 24px; font-weight: 900; color: #10b981; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;">Success!</h2>
+            <p style="color: #94a3b8; font-size: 13px; margin-bottom: 4px;">AI Classification Complete</p>
+            <p style="color: #f8fafc; font-size: 36px; font-weight: 900; margin: 16px 0;">${count}</p>
+            <p style="color: #94a3b8; font-size: 13px; margin-bottom: 32px;">Questions processed & saved to database</p>
+            <button onclick="this.closest('div[style]').remove()" style="
+                background: #10b981; color: white; border: none;
+                padding: 14px 40px; border-radius: 12px;
+                font-weight: 900; font-size: 12px;
+                text-transform: uppercase; cursor: pointer;
+                letter-spacing: 0.1em;
+            ">Done</button>
+        </div>
+    `;
+    document.body.appendChild(popup);
+    popup.addEventListener('click', (e) => { if(e.target === popup) popup.remove(); });
+}
+
+function showErrorPopup(message) {
+    const popup = document.createElement('div');
+    popup.style.cssText = `
+        position: fixed; inset: 0; z-index: 9999;
+        background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);
+        display: flex; align-items: center; justify-content: center;
+    `;
+    popup.innerHTML = `
+        <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 24px; padding: 48px; text-align: center; max-width: 400px;">
+            <div style="font-size: 64px; margin-bottom: 16px;">❌</div>
+            <h2 style="font-size: 24px; font-weight: 900; color: #ef4444; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px;">Error</h2>
+            <p style="color: #94a3b8; font-size: 13px; margin-bottom: 32px;">${message}</p>
+            <button onclick="this.closest('div[style]').remove()" style="
+                background: #ef4444; color: white; border: none;
+                padding: 14px 40px; border-radius: 12px;
+                font-weight: 900; font-size: 12px;
+                text-transform: uppercase; cursor: pointer;
+            ">Close</button>
+        </div>
+    `;
+    document.body.appendChild(popup);
+    popup.addEventListener('click', (e) => { if(e.target === popup) popup.remove(); });
 }
 
         function stopClassification() { if (abortController) abortController.abort(); document.getElementById('loadingOverlay').style.display = 'none'; }
