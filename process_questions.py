@@ -6,20 +6,20 @@ import os
 import re
 from transformers import BertTokenizer, BertForSequenceClassification
 from sklearn.metrics.pairwise import cosine_similarity
-from huggingface_hub import login
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-HF_TOKEN = os.getenv('HF_TOKEN')
-if HF_TOKEN:
-    login(token=HF_TOKEN)
+
 
 MODEL_PATH = os.getenv('MODEL_PATH', 'moneyll/quiz-royale-bert')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 try:
     tokenizer = BertTokenizer.from_pretrained(MODEL_PATH)
-    model = BertForSequenceClassification.from_pretrained(MODEL_PATH).to(device)
+    model = BertForSequenceClassification.from_pretrained(
+        MODEL_PATH,
+        torch_dtype=torch.float16
+    ).to(device)
     model.eval()
 except Exception as e:
     print(f"BERT Load Error: {str(e)}", file=sys.stderr)
@@ -192,7 +192,7 @@ def main():
 
     try:
         data = json.loads(raw_input)
-        batch_size = 16
+        batch_size = 4
 
         for i in range(0, len(data), batch_size):
             batch = data[i: i + batch_size]
