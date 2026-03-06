@@ -561,6 +561,7 @@ app.patch('/admin/users/:id/unban', requireApiKey, async (req, res) => {
 });
 
 // POST: Process PDF with BERT AI
+// POST: Process PDF with BERT AI
 app.post('/admin/upload-quiz', requireApiKey, async (req, res) => {
     if (!req.files || !req.files.quizPdf) return res.status(400).json({ error: 'No file uploaded.' });
 
@@ -569,71 +570,54 @@ app.post('/admin/upload-quiz', requireApiKey, async (req, res) => {
         const data = await pdf(Buffer.from(file.data));
         const extracted = parseQuizPdf(data.text);
         const totalToProcess = extracted.length;
-        
+
         console.log(`\n📂 File Received. Total Questions: ${totalToProcess}`);
-        console.log(`🚀 Starting AI classification...`);
+        console.log(`🚀 Sending to HuggingFace Spaces for classification...`);
 
-        const pythonPath = process.env.PYTHON_PATH || path.join(process.cwd(), '..', 'quiz-royale-ml', 'venv', 'Scripts', 'python.exe');
-        const scriptPath = path.join(process.cwd(), 'process_questions.py');
+        if (totalToProcess === 0) {
+            return res.status(400).json({ error: 'No questions could be parsed from the PDF.' });
+        }
 
-        const pythonProcess = spawn(pythonPath, ['-u', scriptPath], {
-            cwd: process.cwd(),
-            env: { ...process.env, TRANSFORMERS_OFFLINE: '0', PYTHONIOENCODING: 'utf-8' } // Forced UTF-8
-        });
+        const HF_SPACE_URL = process.env.HF_SPACE_URL || 'https://moneyll-quiz-royale-classifier.hf.space';
 
-        const rl = readline.createInterface({ input: pythonProcess.stdout, terminal: false });
-        
+        // Send in chunks of 50 to avoid timeout
+        const CHUNK_SIZE = 50;
         let totalSaved = 0;
-        let batchBuffer = [];
-        let pendingWrites = [];
-        const DB_BATCH_SIZE = 50; 
 
-        rl.on('line', (line) => {
-            if (!line.trim()) return;
-            try {
-                const qData = JSON.parse(line);
-                batchBuffer.push(qData);
-                
-                if (batchBuffer.length >= DB_BATCH_SIZE) {
-                    const ops = batchBuffer.map(q => ({
-                        updateOne: {
-                            filter: { questionText: q.questionText },
-                            update: { $set: q },
-                            upsert: true
-                        }
-                    }));
-                    
-                    pendingWrites.push(Question.bulkWrite(ops));
-                    totalSaved += batchBuffer.length;
-                    
-                    const percent = ((totalSaved / totalToProcess) * 100).toFixed(1);
-                    console.log(`✅ Progress: ${totalSaved}/${totalToProcess} (${percent}%)`);
-                    
-                    batchBuffer = [];
-                }
-            } catch (e) { console.error("Parse Error:", e.message); }
-        });
+        for (let i = 0; i < extracted.length; i += CHUNK_SIZE) {
+            const chunk = extracted.slice(i, i + CHUNK_SIZE);
 
-        pythonProcess.stderr.on('data', (d) => console.error(`❌ Python Error: ${d.toString()}`));
-        pythonProcess.stdin.write(JSON.stringify(extracted));
-        pythonProcess.stdin.end();
-
-        await new Promise((resolve) => {
-            pythonProcess.on('close', async (code) => {
-                if (batchBuffer.length > 0) {
-                    pendingWrites.push(Question.bulkWrite(batchBuffer.map(q => ({
-                        updateOne: { filter: { questionText: q.questionText }, update: { $set: q }, upsert: true }
-                    }))));
-                    totalSaved += batchBuffer.length;
-                }
-                
-                await Promise.all(pendingWrites);
-                console.log(`\n🏁 FINISHED: All ${totalSaved} questions processed and saved. (Code ${code})`);
-                resolve();
+            const response = await fetch(`${HF_SPACE_URL}/classify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ questions: chunk })
             });
-        });
 
-        if (!res.headersSent) res.json({ success: true, count: totalSaved });
+            if (!response.ok) {
+                throw new Error(`HF Space error: ${response.status}`);
+            }
+
+            const result = await response.json();
+            const classified = result.results;
+
+            // Save to MongoDB
+            const ops = classified.map(q => ({
+                updateOne: {
+                    filter: { questionText: q.questionText },
+                    update: { $set: q },
+                    upsert: true
+                }
+            }));
+
+            await Question.bulkWrite(ops);
+            totalSaved += classified.length;
+
+            const percent = ((totalSaved / totalToProcess) * 100).toFixed(1);
+            console.log(`✅ Progress: ${totalSaved}/${totalToProcess} (${percent}%)`);
+        }
+
+        console.log(`\n🏁 FINISHED: All ${totalSaved} questions processed and saved.`);
+        res.json({ success: true, count: totalSaved });
 
     } catch (err) {
         console.error('❌ Fatal Error:', err);
