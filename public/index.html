@@ -213,12 +213,11 @@
         async function syncData() {
             const key = document.getElementById('apiKey').value;
             if(!key) return alert("Admin Key required");
-            localStorage.setItem('adminKey', key);
             refreshData();
         }
 
         async function refreshData() {
-            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            const key = document.getElementById('apiKey').value;
             if(!key) return;
             try {
                 // Fetch Stats
@@ -245,7 +244,7 @@
         }
 
         async function toggleBan(userId, isCurrentlyBanned) {
-            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            const key = document.getElementById('apiKey').value;
             const action = isCurrentlyBanned ? 'unban' : 'ban'; // Choose correct endpoint
             if(!confirm(`Are you sure you want to ${isCurrentlyBanned ? 'Unban' : 'Ban'} this user?`)) return;
 
@@ -266,7 +265,7 @@
         }
 
         async function filterByGenre(genre) {
-            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            const key = document.getElementById('apiKey').value;
             const res = await fetch(`${API}/admin/questions${genre !== 'All' ? '?genre='+encodeURIComponent(genre) : ''}`, { headers: {'x-api-key': key} });
             questionData = await res.json();
             renderQuestions();
@@ -326,7 +325,7 @@
             const checked = document.querySelectorAll('.q-checkbox:checked');
             if(!confirm(`Delete ${checked.length} questions forever?`)) return;
             const ids = Array.from(checked).map(cb => cb.value);
-            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            const key = document.getElementById('apiKey').value;
             try {
                 const res = await fetch(`${API}/admin/questions/bulk`, {
                     method: 'DELETE',
@@ -339,7 +338,7 @@
 
         async function deleteQuestion(id, silent = false) {
             if(!silent && !confirm("Delete question?")) return;
-            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            const key = document.getElementById('apiKey').value;
             await fetch(`${API}/admin/questions/${id}`, { method: 'DELETE', headers: {'x-api-key': key} });
             if(!silent) refreshData();
         }
@@ -363,7 +362,7 @@
 
         async function saveEdit() {
             const id = document.getElementById('editId').value;
-            const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+            const key = document.getElementById('apiKey').value;
             const updated = {
                 questionText: document.getElementById('editTxt').value,
                 genre: document.getElementById('editGenre').value,
@@ -382,7 +381,7 @@
         function clearFile() { document.getElementById('fileIn').value = ""; document.getElementById('fileName').innerText = "CLICK TO SELECT SOURCE PDF"; }
         
         async function doUpload() {
-    const key = document.getElementById('apiKey').value || localStorage.getItem('adminKey');
+    const key = document.getElementById('apiKey').value;
     const file = document.getElementById('fileIn').files[0];
     if(!file || !key) return alert("Missing Key/File.");
     
