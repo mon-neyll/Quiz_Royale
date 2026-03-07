@@ -420,33 +420,24 @@ export const initSocket = (server) => {
         });
 
         const finishGame = async (roomId) => {
-            const game = activeGames[roomId];
-            if (!game) return;
+    const game = activeGames[roomId];
+    if (!game) return;
 
-            // ── Winner decided purely by number of correct answers ──
-            const c1 = game.p1.scoreObj?.correct ?? 0;
-            const c2 = game.p2.scoreObj?.correct ?? 0;
+    const c1 = game.p1.scoreObj?.correct ?? 0;
+    const c2 = game.p2.scoreObj?.correct ?? 0;
 
-            const isDraw    = c1 === c2;
-            const winnerId  = isDraw ? null : (c1 > c2 ? game.p1.userId : game.p2.userId);
+    const isDraw    = c1 === c2;
+    const winnerId  = isDraw ? null : (c1 > c2 ? game.p1.userId : game.p2.userId);
 
-            try {
-                await Promise.all([game.p1, game.p2].map(p =>
-                    applyMatchResult(io, p, p.userId === winnerId, isDraw)
-                ));
-            } catch (err) { console.error("Finalizing error:", err); }
-
-            io.to(roomId).emit('game_over', {
-                results: [
-                    { userId: game.p1.userId, name: game.p1.name, correct: c1, total: 5, matchScore: c1 },
-                    { userId: game.p2.userId, name: game.p2.name, correct: c2, total: 5, matchScore: c2 },
-                ],
-                winner: winnerId
-            });
-
-            delete activeGames[roomId];
-            await broadcastLeaderboard(io);
-        };
+    // Skip stats update for challenge rooms — friendly matches don't affect rankings
+    const isChallengeRoom = roomId.startsWith('challenge_');
+    if (!isChallengeRoom) {
+        try {
+            await Promise.all([game.p1, game.p2].map(p =>
+                applyMatchResult(io, p, p.userId === winnerId, isDraw)
+            ));
+        } catch (err) { console.error("Finalizing error:", err); }
+    }
 
         socket.on('forfeit', async ({ roomId, userId }) => {
             const game = activeGames[roomId];
