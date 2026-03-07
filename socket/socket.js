@@ -439,6 +439,18 @@ export const initSocket = (server) => {
         } catch (err) { console.error("Finalizing error:", err); }
     }
 
+            io.to(roomId).emit('game_over', {
+                results: [
+                    { userId: game.p1.userId, name: game.p1.name, correct: c1, total: 5, matchScore: c1 },
+                    { userId: game.p2.userId, name: game.p2.name, correct: c2, total: 5, matchScore: c2 },
+                ],
+                winner: winnerId
+            });
+
+            delete activeGames[roomId];
+            await broadcastLeaderboard(io);
+        };
+
         socket.on('forfeit', async ({ roomId, userId }) => {
             const game = activeGames[roomId];
             if (!game || game.forfeited) return;
