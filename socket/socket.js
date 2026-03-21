@@ -46,8 +46,8 @@ export const initSocket = (server) => {
             else if (points >= 200 && updated.level === 'noob') targetLevel = 'intermediate';
 
             // Demotion logic
-            else if (points < 200 && updated.level === 'pro') targetLevel = 'intermediate';
-            else if (points < 100 && updated.level === 'intermediate') targetLevel = 'noob';
+            else if (points < 500 && updated.level === 'pro') targetLevel = 'intermediate';
+            else if (points < 200 && updated.level === 'intermediate') targetLevel = 'noob';
 
             if (targetLevel !== updated.level) {
                 updated = await User.findByIdAndUpdate(player.userId, { level: targetLevel }, { new: true });
