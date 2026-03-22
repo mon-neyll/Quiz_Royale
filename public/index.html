@@ -226,7 +226,7 @@
                 document.getElementById('cnt-qs').innerText = stats.totalQuestions;
                 document.getElementById('cnt-users').innerText = stats.userStats;
                 document.getElementById('cnt-genres').innerText = stats.uniqueGenres || 10;
-                document.getElementById('cnt-accuracy').innerText = (stats.accuracy || 94) + "%";
+                document.getElementById('cnt-accuracy').innerText = (stats.accuracy || 73.94) + "%";
 
                 if(currentTab === 'users') {
                     const res = await fetch(`${API}/admin/users`, { headers: {'x-api-key': key} });
