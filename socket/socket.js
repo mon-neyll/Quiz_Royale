@@ -242,7 +242,12 @@ export const initSocket = (server) => {
                 socket.join(roomId);
 
                 const difficultyMap = { noob: 'Easy', intermediate: 'Medium', pro: 'Hard' };
-                const targetDifficulty = difficultyMap[host.level] || 'Easy';
+                // CORRECT for join_room
+                const levelRank = { noob: 1, intermediate: 2, pro: 3 };
+                const higherLevel = (levelRank[host.level] ?? 1) >= (levelRank[guest.level] ?? 1)
+                    ? host.level
+                    : guest.level;
+                const targetDifficulty = difficultyMap[higherLevel] || 'Easy';
 
                 const combinedHistory = [
                     ...(host.playedQuestions || []),
@@ -324,6 +329,9 @@ export const initSocket = (server) => {
 
         socket.on('join_match', async ({ userId }) => {
             try {
+                lobby = lobby.filter(p =>
+                    p.userId !== userId && p.socketId !== socket.id
+                );
                 const user = await User.findById(userId).lean();
                 if (!user || user.isBanned) {
                     console.log(`Connection rejected: User ${userId} is banned or not found.`);
@@ -340,16 +348,23 @@ export const initSocket = (server) => {
 
                 console.log(`Lobby Entry: ${currentName} | Level: ${currentLevel} | Genres: [${currentGenres}]`);
 
-                const opponentIndex = lobby.findIndex(p => {
-                    if (p.userId === userId) return false;
-                    if (p.level !== currentLevel) return false;
+                // Find ALL compatible opponents first
+                let bestOpponentIndex = -1;
+                let bestSimilarity = 0;
+
+                lobby.forEach((p, index) => {
+                    if (p.userId === userId) return;
+                    if (p.level !== currentLevel) return;
                     const similarity = calculateSimilarity(p.genrePreferences, currentGenres);
                     console.log(`Matching Attempt: ${currentName} vs ${p.name} | Sim: ${similarity.toFixed(2)}`);
-                    return similarity >= 0.65;
+                    if (similarity >= 0.65 && similarity > bestSimilarity) {
+                        bestSimilarity = similarity;
+                        bestOpponentIndex = index;
+                    }
                 });
 
-                if (opponentIndex !== -1) {
-                    const opponent = lobby.splice(opponentIndex, 1)[0];
+                if (bestOpponentIndex !== -1) {
+                    const opponent = lobby.splice(bestOpponentIndex, 1)[0];
                     const roomId = `match_${socket.id}_${opponent.socketId}`;
 
                     socket.join(roomId);
@@ -407,19 +422,19 @@ export const initSocket = (server) => {
                     }, 22000);
 
                 } else {
-                    lobby = lobby.filter(p => p.userId !== userId);
-                    lobby.push({
-                        socketId: socket.id,
-                        userId: user._id.toString(),
-                        name: currentName,
-                        level: currentLevel,
-                        genrePreferences: currentGenres,
-                        playedQuestions: user.playedQuestions || []
-                    });
-                    socket.emit('waiting', { status: "Searching for an opponent..." });
-                }
-            } catch (err) { console.error("Matchmaking error:", err); }
-        });
+                // Fix — redundant filter removed, Step 1 already cleaned this user out
+                lobby.push({
+                    socketId: socket.id,
+                    userId: user._id.toString(),
+                    name: currentName,
+                    level: currentLevel,
+                    genrePreferences: currentGenres,
+                    playedQuestions: user.playedQuestions || []
+                });
+                socket.emit('waiting', { status: "Searching for an opponent..." });
+            }
+        } catch (err) { console.error("Matchmaking error:", err); }
+    });
 
         socket.on('leave_lobby', ({ userId }) => {
             lobby = lobby.filter(p => p.userId !== userId);
@@ -472,7 +487,7 @@ export const initSocket = (server) => {
 
             setTimeout(() => {
                 if (activeGames[roomId]) finishGame(roomId);
-            }, 120000);
+            }, 65000);
 
             io.to(winner.socketId).emit('opponent_forfeited', {
                 message: 'Opponent forfeited. Finish your questions to see the results.'
@@ -544,7 +559,7 @@ export const initSocket = (server) => {
 
                     setTimeout(() => {
                         if (activeGames[roomId]) finishGame(roomId);
-                    }, 120000);
+                    }, 65000);
 
                     io.to(winner.socketId).emit('opponent_left', {
                         message: 'Opponent disconnected. Finish your questions to see the results.',
